@@ -31,7 +31,7 @@ jobs:
           gradle-version: '8.9'
       - name: Compilar versión release sin firmar
         env:
-          TUBESTRATEGIA_BACKEND_URL: ${{ vars.TUBESTRATEGIA_BACKEND_URL }}
+          TUBESTRATEGIA_BACKEND_URL: ${{ vars.TUBESTRATEGIA_BACKEND_URL || 'https://script.google.com/macros/s/AKfycbxDN7g-ICBYb-U4VUPcI8-Wp85X4kLIa0CgoGto9dgtYaH3D49TvsTzoFQY-d1jB2O5/exec' }}
         run: gradle --no-daemon :app:assembleRelease
       - name: Firmar y comprobar certificado
         shell: bash
