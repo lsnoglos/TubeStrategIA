@@ -1,4 +1,4 @@
-name: Compilar APK Android
+name: Compilar APK Android firmada
 on:
   push:
     branches: [main]
@@ -8,21 +8,58 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Instalar SDK y herramientas
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Instalar SDK
-        run: sdkmanager "platforms;android-35" "build-tools;34.0.0"
-      - name: Compilar
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Compilar versión release sin firmar
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Firmar y comprobar certificado
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for var in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!var}" ]]; then
+              echo "::error::Falta el secreto $var"
+              exit 1
+            fi
+          done
+          signing_dir="$(mktemp -d)"
+          trap 'rm -rf "$signing_dir"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$signing_dir/signing.jks"
+          unset KEYSTORE_BASE64
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          mkdir -p dist
+          "$tools/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk "$signing_dir/aligned.apk"
+          "$tools/apksigner" sign --ks "$signing_dir/signing.jks" --ks-key-alias "$KEY_ALIAS" --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD --out dist/TubeStrategIA.apk "$signing_dir/aligned.apk"
+          "$tools/apksigner" verify --verbose --print-certs dist/TubeStrategIA.apk > "$signing_dir/verification.txt"
+          actual="$(grep -m 1 'certificate SHA-1 digest:' "$signing_dir/verification.txt" | awk '{print $NF}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          expected="dd8328e5929233d84ea68b54b4871f81a02534f4"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::El certificado de la APK no coincide con el SHA-1 registrado en Google Cloud."
+            exit 1
+          fi
+          echo "Firma APK verificada: $actual"
+          rm -f dist/*.idsig
       - uses: actions/upload-artifact@v4
         with:
-          name: TubeStrategIA-0.1.0-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: TubeStrategIA-firmada
+          path: dist/TubeStrategIA.apk
           if-no-files-found: error
