@@ -1,6 +1,11 @@
 package com.lsnoglos.tubestrategia;
 
 import android.app.*;
+import androidx.credentials.*;
+import androidx.credentials.exceptions.GetCredentialException;
+import androidx.credentials.exceptions.ClearCredentialException;
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 import android.os.*;
 import android.content.Intent;
 import android.net.Uri;
@@ -24,6 +29,11 @@ public class MainActivity extends Activity {
     private EditText query;
     private Spinner region,order,category;
     private String key="";
+    private GoogleIdTokenCredential account;
+    private boolean signingIn=false;
+    private CancellationSignal signInCancellation;
+    private CredentialManager credentialManager;
+    private static final String GOOGLE_WEB_CLIENT="462342787368-pi9u7cfa8na7df34llfed6hc9so6ocf5.apps.googleusercontent.com";
     private int generation=0;
     private JSONArray lastVideos=new JSONArray(), lastChannels=new JSONArray();
     private String lastContext="";
@@ -36,9 +46,58 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
         getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
-        home();
+        credentialManager=CredentialManager.create(this);
+        loginScreen("");
     }
-    @Override protected void onDestroy(){generation++;pool.shutdownNow();super.onDestroy();}
+    @Override protected void onDestroy(){generation++;if(signInCancellation!=null)signInCancellation.cancel();pool.shutdownNow();super.onDestroy();}
+    void loginScreen(String message){
+        generation++;busy=false;current="login";
+        root=column();root.setBackgroundColor(BG);root.setGravity(Gravity.CENTER);root.setPadding(dp(26),dp(24),dp(26),dp(24));setContentView(root);
+        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.ic_launcher);root.addView(logo,new LinearLayout.LayoutParams(dp(88),dp(88)));
+        TextView title=text("TubeStrategIA",30,FG,true);title.setGravity(Gravity.CENTER);root.addView(title);
+        TextView sub=text("Inteligencia de mercado para YouTube",15,MUTED,false);sub.setGravity(Gravity.CENTER);root.addView(sub);
+        TextView intro=text("Explora tendencias y encuentra tu próxima oportunidad.",18,FG,true);intro.setGravity(Gravity.CENTER);intro.setPadding(0,dp(28),0,dp(20));root.addView(intro);
+        Button google=button("Continuar con Google",this::signIn);google.setTextColor(0xff202124);google.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xfff8fafc));root.addView(google,new LinearLayout.LayoutParams(-1,dp(52)));
+        status=text(message.isEmpty()?"Accede con tu propia cuenta de Google.":message,13,MUTED,false);status.setGravity(Gravity.CENTER);root.addView(status);
+        action(root,"Privacidad y condiciones",this::policies);
+    }
+    void signIn(){
+        if(signingIn)return;
+        signingIn=true;status.setText("Abriendo selector de Google…");
+        signInCancellation=new CancellationSignal();
+        try{
+            GetSignInWithGoogleOption option=new GetSignInWithGoogleOption.Builder(GOOGLE_WEB_CLIENT).build();
+            GetCredentialRequest request=new GetCredentialRequest.Builder().addCredentialOption(option).build();
+            credentialManager.getCredentialAsync(this,request,signInCancellation,getMainExecutor(),new CredentialManagerCallback<GetCredentialResponse,GetCredentialException>(){
+                @Override public void onResult(GetCredentialResponse response){
+                    signingIn=false;if(isFinishing()||isDestroyed())return;
+                    try{
+                        Credential c=response.getCredential();
+                        if(!(c instanceof CustomCredential)||!GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType()))throw new IllegalArgumentException();
+                        account=GoogleIdTokenCredential.createFrom(c.getData());
+                        home();
+                    }catch(Exception e){loginScreen("No se pudo leer la credencial de Google. Intenta nuevamente.");}
+                }
+                @Override public void onError(GetCredentialException e){
+                    signingIn=false;if(isFinishing()||isDestroyed())return;
+                    loginScreen("No se completó el acceso. Verifica que tu cuenta sea usuaria de prueba y que Google Play Services esté actualizado. ("+e.getClass().getSimpleName()+")");
+                }
+            });
+        }catch(Exception e){signingIn=false;loginScreen("No se pudo abrir el acceso con Google.");}
+    }
+    void accountMenu(){
+        if(account==null){loginScreen("");return;}
+        new AlertDialog.Builder(this).setTitle("Mi cuenta").setMessage(account.getId()+"\n\nLa identidad se mantiene en esta sesión. La sincronización de Drive y el servicio central de YouTube todavía no están conectados.")
+            .setPositiveButton("Cerrar sesión",(d,w)->signOut()).setNeutralButton("Diagnóstico API (pruebas)",(d,w)->settings()).setNegativeButton("Volver",null).show();
+    }
+    void signOut(){
+        account=null;key="";lastVideos=new JSONArray();lastChannels=new JSONArray();lastContext="";
+        loginScreen("Sesión cerrada.");
+        try{credentialManager.clearCredentialStateAsync(new ClearCredentialStateRequest(),null,getMainExecutor(),new CredentialManagerCallback<Void,ClearCredentialException>(){
+            @Override public void onResult(Void result){}
+            @Override public void onError(ClearCredentialException e){}
+        });}catch(Exception ignored){}
+    }
     GradientDrawable bg(int c,int radius){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(radius));return d;}
     LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
     TextView text(String s,int sp,int color,boolean bold){
@@ -58,9 +117,9 @@ public class MainActivity extends Activity {
         root=column();root.setBackgroundColor(BG);root.setPadding(dp(16),dp(8),dp(16),dp(8));setContentView(root);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title=text("TubeStrategIA",23,FG,true);
-        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(button("Clave API",this::settings));root.addView(header);
+        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(button("Mi cuenta",this::accountMenu));root.addView(header);
         note(root,subtitle);
-        status=text("Fuente: YouTube Data API · "+(key.isEmpty()?"sin conexión configurada":"clave de sesión configurada"),12,MUTED,false);root.addView(status);
+        status=text(key.isEmpty()?"Fuente: YouTube · servicio central pendiente":"Fuente: YouTube · modo de diagnóstico personal",12,MUTED,false);root.addView(status);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout nav=new LinearLayout(this);
         String[] names={"Inicio","Buscar","Canales","Historial"};
@@ -107,7 +166,7 @@ public class MainActivity extends Activity {
         note(l,"Se amplía de 7 a 30 y 90 días si hay menos de diez resultados. Frecuencia de publicación y análisis de demanda: pendientes.");
         if(lastVideos.length()>0){note(body,"Última consulta: "+lastContext);renderVideos(body,lastVideos,10);}
     }
-    boolean ready(){if(busy){status.setText("Hay una consulta en curso.");return false;}if(key.isEmpty()){settings();return false;}return true;}
+    boolean ready(){if(busy){status.setText("Hay una consulta en curso.");return false;}if(key.isEmpty()){status.setText("Servicio central de YouTube aún no configurado. El modo de diagnóstico es opcional.");return false;}return true;}
     void run(Work work){
         if(!ready())return;
         busy=true;int token=++generation;String sessionKey=key;status.setText("Consultando YouTube…");
@@ -195,7 +254,7 @@ public class MainActivity extends Activity {
         action(c,"Consultar políticas de métricas",()->open("https://developers.google.com/youtube/terms/derived-metrics-policy"));
     }
     void policies(){
-        new AlertDialog.Builder(this).setTitle("Información y privacidad").setMessage("Prototipo personal: utiliza una clave de sesión para consultas HTTPS a Google. No almacena estadísticas ni credenciales en disco, no vincula cuentas, no incluye publicidad ni telemetría propia. Los datos visibles proceden de YouTube.").setPositiveButton("Políticas de YouTube",(d,w)->open("https://www.youtube.com/t/terms")).setNeutralButton("Privacidad de Google",(d,w)->open("https://policies.google.com/privacy")).setNegativeButton("Cerrar",null).show();
+        new AlertDialog.Builder(this).setTitle("Información y privacidad").setMessage("Prototipo: inicia sesión mediante Google Credential Manager. Mantiene la identidad en memoria de sesión; todavía no existe un servidor que valide el token ni almacenamiento en Drive. El modo de diagnóstico utiliza una clave de sesión para consultas HTTPS a Google. No incluye publicidad ni telemetría propia.").setPositiveButton("Políticas de YouTube",(d,w)->open("https://www.youtube.com/t/terms")).setNeutralButton("Privacidad de Google",(d,w)->open("https://policies.google.com/privacy")).setNegativeButton("Cerrar",null).show();
     }
     void open(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"No hay aplicación disponible para abrir el enlace.",Toast.LENGTH_SHORT).show();}}
 }
