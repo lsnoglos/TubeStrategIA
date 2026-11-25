@@ -10,33 +10,29 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 final class YouTubeApi {
-    private final String key;
-    YouTubeApi(String key) { this.key = key; }
+    private final String token;
+    YouTubeApi(String token) { this.token = token; }
 
     private JSONObject get(String endpoint, String... params) throws Exception {
-        Uri.Builder uri = Uri.parse("https://www.googleapis.com/youtube/v3/" + endpoint).buildUpon();
-        for (int i=0;i<params.length;i+=2) uri.appendQueryParameter(params[i], params[i+1]);
-        HttpURLConnection conn=(HttpURLConnection)new URL(uri.build().toString()).openConnection();
-        conn.setRequestProperty("X-Goog-Api-Key", key);
-        conn.setRequestProperty("Accept", "application/json");
-        conn.setConnectTimeout(12000); conn.setReadTimeout(18000); conn.setInstanceFollowRedirects(false);
-        try {
+        JSONObject request=new JSONObject();
+        request.put("idToken",token);request.put("endpoint",endpoint);
+        JSONObject args=new JSONObject();
+        for(int i=0;i<params.length;i+=2)args.put(params[i],params[i+1]);
+        request.put("params",args);
+        HttpURLConnection conn=(HttpURLConnection)new URL(BuildConfig.BACKEND_URL).openConnection();
+        conn.setRequestMethod("POST");conn.setDoOutput(true);conn.setRequestProperty("Content-Type","application/json");
+        conn.setConnectTimeout(15000);conn.setReadTimeout(35000);
+        try{
+            try(OutputStream out=conn.getOutputStream()){out.write(request.toString().getBytes(StandardCharsets.UTF_8));}
             int status=conn.getResponseCode();
-            InputStream source=status==200?conn.getInputStream():conn.getErrorStream();
-            String payload="";
-            if(source!=null) try(InputStream in=source; ByteArrayOutputStream out=new ByteArrayOutputStream()) {
-                byte[] buf=new byte[4096]; int n;
-                while((n=in.read(buf))!=-1) out.write(buf,0,n);
-                payload=new String(out.toByteArray(), StandardCharsets.UTF_8);
+            if(status!=200)throw new IOException("YouTube HTTP "+status+" · servicio no disponible.");
+            try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+                byte[] buf=new byte[4096];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);
+                JSONObject response=new JSONObject(new String(out.toByteArray(),StandardCharsets.UTF_8));
+                if(!response.optBoolean("ok"))throw new IOException("YouTube HTTP · "+response.optString("error","Consulta rechazada"));
+                return response.getJSONObject("data");
             }
-            if(status!=200) {
-                JSONObject err=new JSONObject(payload.isEmpty()?"{}":payload).optJSONObject("error");
-                JSONArray reasons=err==null?null:err.optJSONArray("errors");
-                String reason=reasons==null||reasons.length()==0?"":reasons.optJSONObject(0).optString("reason","");
-                throw new IOException("YouTube HTTP "+status+" "+reason+"; verifica la API, restricciones y cuota.");
-            }
-            return new JSONObject(payload);
-        } finally { conn.disconnect(); }
+        }finally{conn.disconnect();}
     }
     private static JSONArray items(JSONObject obj) { JSONArray a=obj.optJSONArray("items"); return a==null?new JSONArray():a; }
     static String ids(JSONArray a, boolean search) {

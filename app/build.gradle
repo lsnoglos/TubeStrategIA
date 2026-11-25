@@ -6,13 +6,18 @@ android {
         applicationId 'com.lsnoglos.tubestrategia'
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.3.0'
+        def endpoint = System.getenv('TUBESTRATEGIA_BACKEND_URL') ?: ''
+        if (endpoint && !endpoint.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')) throw new GradleException('URL del backend inválida')
+        buildConfigField 'String', 'BACKEND_URL', '"' + endpoint + '"'
     }
+    buildFeatures { buildConfig true }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 
 dependencies {
+    implementation 'com.google.android.gms:play-services-auth:22.0.0'
     implementation 'androidx.credentials:credentials:1.5.0'
     implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'

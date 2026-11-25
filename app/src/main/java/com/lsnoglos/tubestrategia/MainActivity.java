@@ -8,6 +8,10 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 import android.os.*;
 import android.content.Intent;
+import com.google.android.gms.auth.api.identity.Identity;
+import com.google.android.gms.auth.api.identity.AuthorizationRequest;
+import com.google.android.gms.auth.api.identity.AuthorizationResult;
+import com.google.android.gms.common.api.Scope;
 import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -28,7 +32,11 @@ public class MainActivity extends Activity {
     private TextView status;
     private EditText query;
     private Spinner region,order,category;
-    private String key="";
+    private HistoryStore store;
+    private String driveToken,remoteBaseline;
+    private boolean syncBusy=false,driveEnabled=false;
+    private static final int DRIVE_REQUEST=4421;
+    private static final String DRIVE_SCOPE="https://www.googleapis.com/auth/drive.appdata";
     private GoogleIdTokenCredential account;
     private boolean signingIn=false;
     private CancellationSignal signInCancellation;
@@ -47,6 +55,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
         credentialManager=CredentialManager.create(this);
+        store=new HistoryStore(this);
         loginScreen("");
     }
     @Override protected void onDestroy(){generation++;if(signInCancellation!=null)signInCancellation.cancel();pool.shutdownNow();super.onDestroy();}
@@ -76,6 +85,7 @@ public class MainActivity extends Activity {
                         if(!(c instanceof CustomCredential)||!GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType()))throw new IllegalArgumentException();
                         account=GoogleIdTokenCredential.createFrom(c.getData());
                         home();
+                        authorizeDrive();
                     }catch(Exception e){loginScreen("No se pudo leer la credencial de Google. Intenta nuevamente.");}
                 }
                 @Override public void onError(GetCredentialException e){
@@ -87,16 +97,93 @@ public class MainActivity extends Activity {
     }
     void accountMenu(){
         if(account==null){loginScreen("");return;}
-        new AlertDialog.Builder(this).setTitle("Mi cuenta").setMessage(account.getId()+"\n\nLa identidad se mantiene en esta sesión. La sincronización de Drive y el servicio central de YouTube todavía no están conectados.")
-            .setPositiveButton("Cerrar sesión",(d,w)->signOut()).setNeutralButton("Diagnóstico API (pruebas)",(d,w)->settings()).setNegativeButton("Volver",null).show();
+        new AlertDialog.Builder(this).setTitle("Mi cuenta").setMessage(account.getId()+"\n\nYouTube: "+(BuildConfig.BACKEND_URL.isEmpty()?"servicio central pendiente":"servicio central configurado")+"\nDrive: "+(driveEnabled?"sincronización activa":"sincronización pendiente o pausada"))
+            .setPositiveButton("Cerrar sesión",(d,w)->signOut()).setNeutralButton("Sincronizar Drive",(d,w)->authorizeDrive()).setNegativeButton("Volver",null).show();
     }
     void signOut(){
-        account=null;key="";lastVideos=new JSONArray();lastChannels=new JSONArray();lastContext="";
+        if(syncBusy){toast("Finaliza o cancela la sincronización primero.");return;}
+        account=null;driveToken=null;remoteBaseline=null;driveEnabled=false;lastVideos=new JSONArray();lastChannels=new JSONArray();lastContext="";
         loginScreen("Sesión cerrada.");
         try{credentialManager.clearCredentialStateAsync(new ClearCredentialStateRequest(),null,getMainExecutor(),new CredentialManagerCallback<Void,ClearCredentialException>(){
             @Override public void onResult(Void result){}
             @Override public void onError(ClearCredentialException e){}
         });}catch(Exception ignored){}
+    }
+    void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
+    void authorizeDrive(){
+        if(account==null||syncBusy)return;
+        final GoogleIdTokenCredential session=account;syncBusy=true;
+        AuthorizationRequest request=AuthorizationRequest.builder().setRequestedScopes(Arrays.asList(
+            new Scope(DRIVE_SCOPE),new Scope("openid"),new Scope("https://www.googleapis.com/auth/userinfo.email"))).build();
+        Identity.getAuthorizationClient(this).authorize(request).addOnSuccessListener(result->{
+            if(account!=session||isDestroyed())return;
+            if(result.hasResolution()){
+                try{startIntentSenderForResult(result.getPendingIntent().getIntentSender(),DRIVE_REQUEST,null,0,0,0);}
+                catch(Exception e){syncBusy=false;toast("No se pudo solicitar permiso de Drive.");}
+            }else acceptDrive(result);
+        }).addOnFailureListener(e->{if(account==session){syncBusy=false;toast("Drive no autorizado. Puedes seguir usando la aplicación.");}});
+    }
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode!=DRIVE_REQUEST)return;
+        if(resultCode!=RESULT_OK||data==null){syncBusy=false;toast("Sincronización cancelada.");return;}
+        try{acceptDrive(Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(data));}
+        catch(Exception e){syncBusy=false;toast("No se pudo obtener permiso de Drive.");}
+    }
+    void acceptDrive(AuthorizationResult result){
+        syncBusy=false;
+        if(account==null||result.getAccessToken()==null){toast("Permiso de Drive no disponible.");return;}
+        driveToken=result.getAccessToken();inspectBackup();
+    }
+    void inspectBackup(){
+        if(account==null||driveToken==null||syncBusy)return;
+        final GoogleIdTokenCredential session=account;final String owner=session.getId().toLowerCase(Locale.ROOT);
+        final String access=driveToken,baseline=remoteBaseline;final boolean auto=driveEnabled;syncBusy=true;
+        pool.execute(()->{
+            try{
+                DriveBackup drive=new DriveBackup(access,owner);DriveBackup.Snapshot remote=drive.read();
+                JSONArray local=store.read(owner);
+                runOnUiThread(()->{
+                    if(account!=session||isDestroyed())return;
+                    if(local.toString().equals(remote.entries.toString())){
+                        remoteBaseline=remote.signature();driveEnabled=true;syncBusy=false;toast("Respaldo y dispositivo coinciden.");return;
+                    }
+                    if(remote.id==null||(auto&&Objects.equals(baseline,remote.signature()))){
+                        applyBackup(session,drive,remote,false);return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("¿Desea sincronizar con su respaldo de Google Drive?")
+                    .setMessage("Dispositivo: "+local.length()+" consultas. Drive: "+remote.entries.length()+" consultas. Sincronizar conserva ambos historiales sin duplicar registros.")
+                    .setPositiveButton("Sincronizar",(d,w)->applyBackup(session,drive,remote,true))
+                    .setNeutralButton("Ahora no",(d,w)->{syncBusy=false;driveEnabled=false;toast("Respaldo intacto.");})
+                    .setNegativeButton("Reemplazar respaldo",(d,w)->new AlertDialog.Builder(this).setTitle("¿Reemplazar respaldo?")
+                        .setMessage("Se sustituirán las consultas de Drive por las de este dispositivo. Si está vacío, el respaldo quedará vacío.")
+                        .setPositiveButton("Sí, reemplazar",(x,y)->applyBackup(session,drive,remote,false))
+                        .setNegativeButton("Cancelar",(x,y)->{syncBusy=false;driveEnabled=false;})
+                        .setOnCancelListener(x->{syncBusy=false;driveEnabled=false;}).show())
+                    .setOnCancelListener(d->{syncBusy=false;driveEnabled=false;}).show();
+                });
+            }catch(Exception e){syncError(session);}
+        });
+    }
+    void applyBackup(GoogleIdTokenCredential session,DriveBackup drive,DriveBackup.Snapshot remote,boolean merge){
+        if(account!=session)return;
+        final String owner=session.getId().toLowerCase(Locale.ROOT);
+        pool.execute(()->{
+            try{
+                JSONArray local=store.read(owner);
+                JSONArray target=merge?HistoryStore.merge(local,remote.entries):local;
+                DriveBackup.Snapshot latest=drive.read();
+                if(!remote.signature().equals(latest.signature()))throw new java.io.IOException("Conflicto");
+                if(merge)store.mergeInto(owner,target);
+                drive.write(latest,target);
+                DriveBackup.Snapshot saved=drive.read();
+                if(!saved.entries.toString().equals(target.toString()))throw new java.io.IOException("Verificación");
+                runOnUiThread(()->{if(account==session&&!isDestroyed()){remoteBaseline=saved.signature();driveEnabled=true;syncBusy=false;toast("Historial sincronizado con Drive.");if("history".equals(current))history();}});
+            }catch(Exception e){syncError(session);}
+        });
+    }
+    void syncError(GoogleIdTokenCredential session){
+        runOnUiThread(()->{if(account==session&&!isDestroyed()){syncBusy=false;driveEnabled=false;driveToken=null;toast("No se sincronizó. Tus datos locales se conservan. Reintenta desde Mi cuenta.");}});
     }
     GradientDrawable bg(int c,int radius){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(radius));return d;}
     LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
@@ -119,7 +206,7 @@ public class MainActivity extends Activity {
         TextView title=text("TubeStrategIA",23,FG,true);
         header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(button("Mi cuenta",this::accountMenu));root.addView(header);
         note(root,subtitle);
-        status=text(key.isEmpty()?"Fuente: YouTube · servicio central pendiente":"Fuente: YouTube · modo de diagnóstico personal",12,MUTED,false);root.addView(status);
+        status=text(BuildConfig.BACKEND_URL.isEmpty()?"YouTube · servicio central pendiente":"YouTube · cuota compartida de la aplicación",12,MUTED,false);root.addView(status);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout nav=new LinearLayout(this);
         String[] names={"Inicio","Buscar","Canales","Historial"};
@@ -148,12 +235,6 @@ public class MainActivity extends Activity {
     Spinner spinner(LinearLayout l,String[] options){
         Spinner s=new Spinner(this);ArrayAdapter<String>a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,options);a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);s.setAdapter(a);l.addView(s);return s;
     }
-    void settings(){
-        EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Clave de YouTube Data API");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        new AlertDialog.Builder(this).setTitle("Conexión personal de prueba").setMessage("La clave se conserva únicamente en memoria durante esta sesión. No se envía a nuestro servidor ni se almacena. Restringe su uso a YouTube Data API v3 y revócala si se expone. No utilices claves de producción.").setView(input)
-            .setPositiveButton("Configurar",(d,w)->{key=input.getText().toString().trim();lastVideos=new JSONArray();lastChannels=new JSONArray();lastContext="";home();})
-            .setNeutralButton("Olvidar clave",(d,w)->{key="";lastVideos=new JSONArray();lastChannels=new JSONArray();lastContext="";home();}).setNegativeButton("Cancelar",null).show();
-    }
     void explore(){
         shell("search","Explorador · búsqueda adaptativa por antigüedad");
         LinearLayout l=card(body);
@@ -166,10 +247,10 @@ public class MainActivity extends Activity {
         note(l,"Se amplía de 7 a 30 y 90 días si hay menos de diez resultados. Frecuencia de publicación y análisis de demanda: pendientes.");
         if(lastVideos.length()>0){note(body,"Última consulta: "+lastContext);renderVideos(body,lastVideos,10);}
     }
-    boolean ready(){if(busy){status.setText("Hay una consulta en curso.");return false;}if(key.isEmpty()){status.setText("Servicio central de YouTube aún no configurado. El modo de diagnóstico es opcional.");return false;}return true;}
+    boolean ready(){if(busy){status.setText("Hay una consulta en curso.");return false;}if(account==null){loginScreen("");return false;}if(syncBusy){status.setText("Finaliza la sincronización primero.");return false;}if(BuildConfig.BACKEND_URL.isEmpty()){status.setText("El administrador aún no ha desplegado el servicio central de YouTube.");return false;}return true;}
     void run(Work work){
         if(!ready())return;
-        busy=true;int token=++generation;String sessionKey=key;status.setText("Consultando YouTube…");
+        busy=true;int token=++generation;String sessionKey=account.getIdToken();status.setText("Consultando YouTube…");
         pool.execute(()->{try{work.run(token,new YouTubeApi(sessionKey));}catch(Exception e){
             runOnUiThread(()->{if(token==generation){busy=false;status.setText("No se pudo consultar. "+(e instanceof java.io.IOException&&e.getMessage()!=null&&e.getMessage().startsWith("YouTube HTTP")?e.getMessage():"Comprueba Internet y configuración."));}});
         }});
@@ -188,13 +269,17 @@ public class MainActivity extends Activity {
         });
     }
     void search(){
-        String q=query.getText().toString().trim();if(q.isEmpty()){query.setError("Escribe un tema");return;}
+        String q=query.getText().toString().trim();if(q.isEmpty()||q.length()>500){query.setError("Escribe un tema de hasta 500 caracteres");return;}
         String reg=regions[region.getSelectedItemPosition()];String sort=new String[]{"viewCount","date","relevance"}[order.getSelectedItemPosition()];
         run((token,api)->{
             JSONArray videos=new JSONArray();int used=7;
             for(int days:new int[]{7,30,90}){used=days;videos=api.search(q,reg,days,sort);if(videos.length()>=10)break;}
             final int span=used;final JSONArray found=videos;JSONArray channels=relatedChannels(api,found);
-            finish(token,()->results(q+" · "+reg+" · "+span+" días",found,channels,"Resultados de búsqueda; una muestra pequeña no prueba falta de demanda."));
+            finish(token,()->{if(account==null)return;
+                store.add(account.getId().toLowerCase(Locale.ROOT),q,reg,span,sort);
+                results(q+" · "+reg+" · "+span+" días",found,channels,"Resultados de búsqueda; una muestra pequeña no prueba falta de demanda.");
+                if(driveEnabled)inspectBackup();
+            });
         });
     }
     void results(String context,JSONArray videos,JSONArray channels,String explanation){
@@ -247,14 +332,25 @@ public class MainActivity extends Activity {
         });
     }
     void history(){
-        shell("history","Time Machine · historial verificable");
+        shell("history","Historial personal · consultas guardadas");
+        if(account!=null){
+            action(body,"Sincronizar con Google Drive",this::authorizeDrive);
+            JSONArray rows=store.read(account.getId().toLowerCase(Locale.ROOT));
+            note(body,rows.length()+" consultas guardadas. Se guardan términos y filtros, no contadores de YouTube.");
+            ArrayList<JSONObject> ordered=new ArrayList<>();for(int i=0;i<rows.length();i++)ordered.add(rows.optJSONObject(i));
+            ordered.sort((x,y)->y.optString("at").compareTo(x.optString("at")));
+            for(JSONObject r:ordered){
+                LinearLayout item=card(body);item.addView(text(r.optString("query"),17,FG,true));
+                note(item,r.optString("at")+" · "+r.optString("region")+" · "+r.optInt("days")+" días");
+            }
+        }
         LinearLayout c=card(body);c.addView(text("Todavía no hay series históricas",20,FG,true));
         note(c,"La API pública devuelve contadores actuales. No entrega el historial diario o mensual de terceros. No se muestran curvas inventadas.");
         note(c,"Pendiente: autorización de métricas y almacenamiento, recolector programado en servidor, importación legítima, gráficas temporales y detección de picos.");
         action(c,"Consultar políticas de métricas",()->open("https://developers.google.com/youtube/terms/derived-metrics-policy"));
     }
     void policies(){
-        new AlertDialog.Builder(this).setTitle("Información y privacidad").setMessage("Prototipo: inicia sesión mediante Google Credential Manager. Mantiene la identidad en memoria de sesión; todavía no existe un servidor que valide el token ni almacenamiento en Drive. El modo de diagnóstico utiliza una clave de sesión para consultas HTTPS a Google. No incluye publicidad ni telemetría propia.").setPositiveButton("Políticas de YouTube",(d,w)->open("https://www.youtube.com/t/terms")).setNeutralButton("Privacidad de Google",(d,w)->open("https://policies.google.com/privacy")).setNegativeButton("Cerrar",null).show();
+        new AlertDialog.Builder(this).setTitle("Información y privacidad").setMessage("Inicia sesión con Google. Guarda tus términos de búsqueda y filtros en SQLite y, con tu autorización, en el almacenamiento privado de Drive. Las consultas públicas se realizan mediante el servicio central cuando esté configurado. No se guardan estadísticas externas históricas ni contraseñas. No incluye publicidad ni telemetría propia.").setPositiveButton("Políticas de YouTube",(d,w)->open("https://www.youtube.com/t/terms")).setNeutralButton("Privacidad de Google",(d,w)->open("https://policies.google.com/privacy")).setNegativeButton("Cerrar",null).show();
     }
     void open(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"No hay aplicación disponible para abrir el enlace.",Toast.LENGTH_SHORT).show();}}
 }
