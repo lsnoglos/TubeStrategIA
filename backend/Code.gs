@@ -18,10 +18,17 @@ function doPost(e){
     const p=req.params||{},ep=req.endpoint;let args={};
     const region=String(p.regionCode||'NI');
     if(!['NI','MX','US','ES','CO','AR','BR'].includes(region))return fail_('Región inválida.');
+    if(ep==='capabilities')return output_({ok:true,data:{filterVersion:2}});
     if(ep==='search'){
       const q=String(p.q||'').trim(),t=Date.parse(p.publishedAfter),order=String(p.order);
-      if(!q||q.length>500||!Number.isFinite(t)||t<Date.now()-91*86400000||t>Date.now()||!['viewCount','date','relevance'].includes(order))return fail_('Búsqueda inválida.');
-      args={part:'snippet',type:'video',q,regionCode:region,publishedAfter:new Date(t).toISOString(),order,maxResults:25};
+      const category=String(p.videoCategoryId||''),event=String(p.eventType||'');
+      if(category&&!['2','15','17','19','25','27','28'].includes(category))return fail_('Categoría de búsqueda inválida.');
+      if(event&&event!=='live')return fail_('Tipo de transmisión inválido.');
+      if((!q&&!event&&!category)||q.length>500||!Number.isFinite(t)||t<Date.now()-91*86400000||t>Date.now()||!['viewCount','date','relevance'].includes(order))return fail_('Búsqueda inválida.');
+      args={part:'snippet',type:'video',regionCode:region,publishedAfter:new Date(t).toISOString(),order,maxResults:25};
+      if(q)args.q=q;
+      if(category)args.videoCategoryId=category;
+      if(event)args.eventType=event;
     }else if(ep==='videos'){
       args={part:'snippet,statistics,contentDetails'};
       if(p.chart==='mostPopular'){

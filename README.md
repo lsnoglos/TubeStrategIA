@@ -1,5 +1,5 @@
 # TubeStrategIA
-Aplicación Android nativa en español para investigación de mercado de YouTube. Versión 0.5.0 (piloto privado).
+Aplicación Android nativa en español para investigación de mercado de YouTube. Versión 0.5.1 (piloto privado).
 
 ## Instalar
 Android 8.0 o superior. En GitHub Actions, abrir la ejecución exitosa más reciente y descargar el artefacto TubeStrategIA-firmada. Extraer TubeStrategIA.apk e instalar. La firma permanente se verifica en cada compilación. La primera prueba debe realizarse con una cuenta autorizada en Google OAuth y TEST_EMAILS del backend.
@@ -18,6 +18,9 @@ Miniaturas oficiales de videos a la derecha del título, con carga asincrónica 
 
 ## Interfaz 0.5.0
 Fondo claro, tarjetas compactas con tres contadores y tres acciones en filas. Inicio muestra Top 3 por vistas, likes y comentarios de la muestra mostPopular regional con fecha de consulta, no de todo YouTube ni actividad por período. Catálogo y Nichos mantienen resultados independientes en memoria durante la sesión, con filtros plegables. Sin enlace externo a Google Trends; información metodológica en Acerca de. Ficha del canal y estadísticas de video en ventanas emergentes. Actualizar contadores permite comparar dos lecturas originales durante la ventana; no se almacenan series históricas ni se calculan métricas derivadas. No se modifica el backend.
+
+## Filtros 0.5.1
+Transmisiones en vivo con eventType=live y comprobación de snippet.liveBroadcastContent; nacional mediante país declarado en snippet.country del canal; siete temas combinan videoCategoryId y búsqueda textual. Creaciones con IA muestra solo indicios de declaración explícita en descripción, no verificación oficial; status.containsSyntheticMedia solo se devuelve con autorización del propietario. La búsqueda mantiene el orden de search.list. Se elimina el popup de estadísticas históricas y se añade estilo de botones con degradado, reflejo y profundidad. Para categorías avanzadas y en vivo se requiere actualizar la implementación existente de Apps Script con backend/Code.gs, conservando URL y propiedades. No se modifica el control de cuota.
 
 ## Alcance y limitaciones
 Catálogo regional, búsqueda adaptativa, fichas de videos y canales e historial personal de consultas. Todavía no existe recolección histórica de estadísticas externas, índices derivados ni módulo de planificación. Se requieren pruebas reales de acceso, consultas y sincronización en dos dispositivos; antes de una distribución pública debe reforzarse la validación de sesiones.

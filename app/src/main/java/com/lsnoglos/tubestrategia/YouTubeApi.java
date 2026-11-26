@@ -47,10 +47,26 @@ final class YouTubeApi {
     JSONArray popular(String region,String category) throws Exception {
         return items(get("videos","part","snippet,statistics,contentDetails","chart","mostPopular","regionCode",region,"videoCategoryId",category,"maxResults","25"));
     }
-    JSONArray search(String q,String region,int days,String order) throws Exception {
-        JSONArray found=items(get("search","part","snippet","type","video","q",q,"regionCode",region,"publishedAfter",
+    void requireFilters() throws Exception {
+        JSONObject capability;
+        try{capability=get("capabilities");}
+        catch(Exception e){throw new IOException("YouTube HTTP · Actualiza la implementación del servicio para habilitar los filtros avanzados.",e);}
+        if(capability.optInt("filterVersion")<2)throw new IOException("YouTube HTTP · El servicio requiere una actualización de filtros.");
+    }
+    JSONArray search(String q,String region,int days,String order,String category,String event) throws Exception {
+        ArrayList<String> params=new ArrayList<>(Arrays.asList("part","snippet","type","video","regionCode",region,"publishedAfter",
             Instant.now().minus(days,ChronoUnit.DAYS).toString(),"order",order,"maxResults","25"));
-        return videos(ids(found,true));
+        if(!q.isEmpty())Collections.addAll(params,"q",q);
+        if(!category.isEmpty())Collections.addAll(params,"videoCategoryId",category);
+        if(!event.isEmpty())Collections.addAll(params,"eventType",event);
+        JSONArray found=items(get("search",params.toArray(new String[0])));
+        JSONArray details=videos(ids(found,true));
+        // Keep the order from search.list even if videos.list returns a different order.
+        Map<String,JSONObject> byId=new HashMap<>();
+        for(int i=0;i<details.length();i++){JSONObject j=details.optJSONObject(i);if(j!=null)byId.put(j.optString("id"),j);}
+        JSONArray result=new JSONArray();
+        for(String id:ids(found,true).split(",")){JSONObject j=byId.get(id);if(j!=null)result.put(j);}
+        return result;
     }
     JSONArray videos(String ids) throws Exception {
         if(ids.isEmpty())return new JSONArray();

@@ -65,10 +65,10 @@ public class MainActivity extends Activity {
     private final String[] categories={"0","10","20","1"};
     private static final String[][] THEMES={
         {"Creadores de contenido y vlogs","creadores de contenido | vlog | youtuber"},
-        {"Streaming y directos (tema)","streaming | streamer | directo | livestream"},
-        {"Nacional y cultura local","@country"},
+        {"Transmisiones en vivo","@live"},
+        {"Nacional · país declarado del canal","@country"},
         {"Comida, recetas y gastronomía","recetas | comida | cocina | gastronomía"},
-        {"Videos creados con IA","video generado con IA | AI generated video | historias con IA"},
+        {"Creaciones con IA (indicios)","video creado con IA | AI generated video | AI short film | historias creadas con IA | AI animation"},
         {"Inteligencia artificial y herramientas","inteligencia artificial | herramientas IA | AI tools"},
         {"Historias animadas y frutiseries","historias animadas | frutiseries | fruit animation"},
         {"Humor, memes y entretenimiento","humor | memes | comedia | funny"},
@@ -100,7 +100,7 @@ public class MainActivity extends Activity {
         String[] labels=new String[4+THEMES.length];
         labels[0]="General · catálogo oficial";labels[1]="Música · catálogo oficial";
         labels[2]="Videojuegos · catálogo oficial";labels[3]="Cine y animación · catálogo oficial";
-        for(int i=0;i<THEMES.length;i++)labels[i+4]=THEMES[i][0]+" · tema";
+        for(int i=0;i<THEMES.length;i++)labels[i+4]=THEMES[i][0]+(TopicFilters.category(i).isEmpty()?"":" · categoría");
         return labels;
     }
     interface Work { void run(int token,YouTubeApi api) throws Exception; }
@@ -286,14 +286,26 @@ public class MainActivity extends Activity {
         TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(color);if(bold)t.setTypeface(null,Typeface.BOLD);t.setPadding(0,dp(4),0,dp(4));return t;
     }
     void note(LinearLayout l,String s){l.addView(text(s,13,MUTED,false));}
+    GradientDrawable shine(int top,int middle,int bottom,int radius){
+        GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{top,middle,bottom});d.setCornerRadius(dp(radius));d.setStroke(dp(1),bottom);return d;
+    }
+    android.graphics.drawable.Drawable glossy(int top,int middle,int bottom,int radius){
+        GradientDrawable base=shine(top,middle,bottom,radius);
+        GradientDrawable reflection=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x39ffffff,0x08ffffff,0x00ffffff});
+        reflection.setCornerRadius(dp(radius));
+        android.graphics.drawable.LayerDrawable layers=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{base,reflection});
+        layers.setLayerInset(1,dp(1),dp(1),dp(1),dp(1));
+        return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x30ffffff),layers,null);
+    }
     Button button(String label,Runnable action){
-        Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(FG);b.setTextSize(13);
+        Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(13);
         b.setMinHeight(dp(44));b.setMinimumHeight(dp(44));b.setMinimumWidth(0);b.setMinWidth(0);
-        b.setPadding(dp(7),dp(5),dp(7),dp(5));b.setBackgroundTintList(null);
+        b.setPadding(dp(7),dp(5),dp(7),dp(5));b.setBackgroundTintList(null);b.setElevation(dp(2));
         boolean primary=label.startsWith("Buscar")||label.startsWith("Consultar")||label.startsWith("Actualizar")||label.startsWith("Sincronizar");
-        GradientDrawable shape=primary?gradient(0xffbc056e,0xff4451b9,11):bg(0xffe9f1fa,11);
-        if(primary)b.setTextColor(Color.WHITE);else shape.setStroke(dp(1),0xffcbd9e9);
-        b.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x24000000),shape,null));b.setOnClickListener(v->action.run());return b;
+        if(primary)b.setBackground(glossy(0xffb92391,0xff7545c7,0xff493aa0,11));
+        else if(label.equals("YouTube")||label.startsWith("Abrir")&&label.contains("YouTube"))b.setBackground(glossy(0xffd84468,0xffbb2751,0xff991b40,11));
+        else b.setBackground(glossy(0xff4285b9,0xff286b9e,0xff20547d,11));
+        b.setOnClickListener(v->action.run());return b;
     }
     void action(LinearLayout l,String title,Runnable action){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(5);l.addView(button(title,action),p);}
     void rowAction(LinearLayout row,String title,Runnable action){
@@ -325,7 +337,7 @@ public class MainActivity extends Activity {
         Runnable[] acts={this::home,this::catalog,this::explore,this::history};
         String[] keys={"home","catalog","niche","history"};
         for(int i=0;i<names.length;i++){final Runnable go=acts[i];Button b=button(names[i],()->{rememberFilters();go.run();});b.setTextSize(12);
-            boolean selected=name.equals(keys[i]);b.setTextColor(selected?Color.WHITE:FG);b.setBackground(selected?gradient(0xffbc056e,0xff4451b9,11):bg(0xffdce8f4,11));
+            boolean selected=name.equals(keys[i]);b.setTextColor(Color.WHITE);b.setBackground(selected?glossy(0xffc23296,0xff7545c7,0xff493aa0,11):glossy(0xff497ea6,0xff33678f,0xff285371,11));
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(4),dp(2),0);nav.addView(b,p);}
         root.addView(nav);
     }
@@ -335,7 +347,7 @@ public class MainActivity extends Activity {
         c.addView(text("TubeStrategIA · Inteligencia de mercado",18,FG,true));
         note(c,"Inicio resume la muestra popular regional de YouTube. Catálogo explora listas oficiales y temas predefinidos; Nichos permite investigar cualquier palabra clave.");
         note(c,"Popularidad acumulada no equivale a demanda de búsqueda, crecimiento reciente ni interés de las últimas 24 horas.");
-        note(c,"No tenemos series históricas de terceros ni autorización para métricas avanzadas. No inventamos curvas ni puntuaciones. Time Machine se habilitará cuando existan mediciones y permisos.");
+        note(c,"Las búsquedas temáticas no son clasificaciones completas. País del canal es un dato declarado; IA usa indicios textuales, no verificación oficial. No se consultan comentarios para clasificar.");
         note(c,"Fuente: YouTube Data API. Cuota compartida; el historial personal se guarda en SQLite y, si lo autorizas, en Drive.");
         action(c,"Privacidad y condiciones",this::policies);
         popup("Acerca de",c);
@@ -384,7 +396,7 @@ public class MainActivity extends Activity {
             FrameLayout thumb=videoThumbnail(sn,j.optString("id"));line.addView(thumb,new LinearLayout.LayoutParams(dp(66),dp(38)));
             LinearLayout copy=column();copy.setPadding(dp(8),0,0,0);TextView t=text(sn.optString("title","Sin título"),13,FG,true);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(t);
             copy.addView(text(metric(obj(j,"statistics"),key),15,accent,true));line.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
-            Button more=button("Datos",()->showStatistics(j,result.observed));more.setTextSize(11);line.addView(more,new LinearLayout.LayoutParams(dp(54),dp(44)));
+            Button more=button("Ver",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));more.setTextSize(11);line.addView(more,new LinearLayout.LayoutParams(dp(48),dp(40)));
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(5);group.addView(line,p);
         }
     }
@@ -398,7 +410,7 @@ public class MainActivity extends Activity {
             note(controls,"Categoría o tema");category=spinner(controls,catalogOptions());category.setSelection(Math.max(0,catalogCategory));
             TextView hint=text("",12,MUTED,false);controls.addView(hint);Button submit=button("Consultar catálogo",this::popular);controls.addView(submit);
             category.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
-                @Override public void onItemSelected(AdapterView<?> p,View v,int position,long id){boolean official=position<categories.length;submit.setText(official?"Consultar catálogo":"Buscar videos del tema");hint.setText(official?"Lista oficial disponible para esta región.":"Búsqueda temática · 1–3 llamadas según resultados.");}
+                @Override public void onItemSelected(AdapterView<?> p,View v,int position,long id){boolean official=position<categories.length;submit.setText(official?"Consultar catálogo":"Buscar videos del tema");hint.setText(official?"Lista oficial disponible para esta región.":TopicFilters.hint(position-categories.length));}
                 @Override public void onNothingSelected(AdapterView<?> p){}
             });
         }
@@ -432,12 +444,10 @@ public class MainActivity extends Activity {
         rememberFilters();int ri=catalogRegion,selected=catalogCategory;if(ri<0||selected<0)return;
         String reg=regions[ri];
         if(selected>=categories.length){
-            String[] theme=THEMES[selected-categories.length];String q="@country".equals(theme[1])?countryNames[ri]:theme[1];
-            String explanation="Muestra temática por palabras clave, no categoría oficial.";
-            if("@country".equals(theme[1]))explanation+=" No verifica el origen del creador.";
-            if(selected==5)explanation+=" No garantiza transmisiones activas.";
-            if(selected==8)explanation+=" No confirma generación con IA.";
-            searchTopic(q,reg,"viewCount",theme[0],explanation,true);return;
+            int topic=selected-categories.length;String[] theme=THEMES[topic];
+            String q="@country".equals(theme[1])?countryNames[ri]:"@live".equals(theme[1])?"":theme[1];
+            String explanation=TopicFilters.explanation(topic);
+            searchTopic(q,reg,"viewCount",theme[0],explanation,true,topic);return;
         }
         String cat=categories[selected],label=catalogOptions()[selected];
         run((token,api)->{
@@ -449,15 +459,23 @@ public class MainActivity extends Activity {
         if(query==null)return;rememberFilters();String q=nicheQuery.trim();
         if(q.isEmpty()||q.length()>500){query.setError("Escribe un tema de hasta 500 caracteres");return;}
         if(nicheRegion<0||nicheOrder<0)return;
-        searchTopic(q,regions[nicheRegion],new String[]{"viewCount","date","relevance"}[nicheOrder],q,"Muestra de búsqueda; pocos resultados no prueban baja demanda.",false);
+        searchTopic(q,regions[nicheRegion],new String[]{"viewCount","date","relevance"}[nicheOrder],q,"Muestra de búsqueda; pocos resultados no prueban baja demanda.",false,-1);
     }
-    void searchTopic(String q,String reg,String sort,String label,String explanation,boolean fromCatalog){
+    void searchTopic(String q,String reg,String sort,String label,String explanation,boolean fromCatalog,int topic){
         run((token,api)->{
             JSONArray videos=new JSONArray();int used=7;
-            for(int days:new int[]{7,30,90}){used=days;stage(token,"Buscando videos","Explorando publicaciones de los últimos "+days+" días.");videos=api.search(q,reg,days,sort);if(videos.length()>=10)break;}
+            String cat=TopicFilters.category(topic),event=topic==1?"live":"";
+            if(!cat.isEmpty()||!event.isEmpty())api.requireFilters();
+            for(int days:new int[]{7,30,90}){
+                used=days;stage(token,"Buscando videos","Explorando publicaciones de los últimos "+days+" días.");
+                JSONArray raw=api.search(q,reg,days,sort,cat,event);
+                stage(token,"Aplicando filtros","Comprobando los metadatos disponibles.");
+                videos=TopicFilters.filter(raw,topic,reg,api);
+                if(videos.length()>=10)break;
+            }
             final int span=used;final JSONArray found=videos;
             finish(token,()->{if(account==null)return;
-                store.add(account.getId().toLowerCase(Locale.ROOT),q,reg,span,sort);
+                store.add(account.getId().toLowerCase(Locale.ROOT),q.isEmpty()?label:q,reg,span,sort);
                 VideoResult result=new VideoResult(label+" · "+reg+" · "+span+" días",explanation,found);
                 if(fromCatalog){catalogResult=result;catalogEdit=false;catalog();}else{nicheResult=result;nicheEdit=false;explore();}
                 if(driveEnabled)inspectBackup();
@@ -467,7 +485,7 @@ public class MainActivity extends Activity {
     void renderResult(VideoResult result){
         note(body,"YouTube · "+localDate(result.observed.toString())+" · "+Math.min(10,result.videos.length())+" de "+result.videos.length()+" videos");
         note(body,result.explanation);
-        if(result.videos.length()==0)note(body,"Evidencia insuficiente. Prueba sinónimos u otra región.");
+        if(result.videos.length()==0)note(body,"No se encontraron coincidencias que cumplan los filtros en esta muestra.");
         renderVideos(body,result.videos,10,result.observed);
     }
     static JSONObject obj(JSONObject j,String k){JSONObject v=j.optJSONObject(k);return v==null?new JSONObject():v;}
@@ -486,7 +504,7 @@ public class MainActivity extends Activity {
             LinearLayout buttons=new LinearLayout(this);
             rowAction(buttons,"YouTube",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));
             rowAction(buttons,"Canal",()->loadChannel(sn.optString("channelId")));
-            rowAction(buttons,"Estadísticas",()->showStatistics(j,observed));c.addView(buttons);
+            c.addView(buttons);
         }
     }
     FrameLayout videoThumbnail(JSONObject snippet,String videoId){
@@ -508,9 +526,11 @@ public class MainActivity extends Activity {
         return frame;
     }
     void addMetric(LinearLayout row,String label,String value,int accent,int fill){
-        LinearLayout tile=column();tile.setPadding(dp(6),dp(4),dp(6),dp(4));tile.setBackground(bg(fill,9));
-        TextView name=text(label,10,accent,true);name.setPadding(0,0,0,0);name.setSingleLine(true);name.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);tile.addView(name);
-        TextView number=text(value,15,FG,true);number.setPadding(0,dp(2),0,0);number.setSingleLine(true);number.setAutoSizeTextTypeUniformWithConfiguration(9,15,1,android.util.TypedValue.COMPLEX_UNIT_SP);tile.addView(number);
+        LinearLayout tile=column();tile.setPadding(dp(6),dp(4),dp(6),dp(4));int top=accent==CYAN?0xff247fa4:accent==PINK?0xffb92e83:accent==GREEN?0xff3d9063:0xffa87328;
+        int bottom=accent==CYAN?0xff125c80:accent==PINK?0xff84205e:accent==GREEN?0xff286442:0xff765019;
+        tile.setBackground(shine(top,top,bottom,9));tile.setElevation(dp(1));
+        TextView name=text(label,10,0xfff5faff,true);name.setPadding(0,0,0,0);name.setSingleLine(true);name.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);tile.addView(name);
+        TextView number=text(value,15,Color.WHITE,true);number.setPadding(0,dp(2),0,0);number.setSingleLine(true);number.setAutoSizeTextTypeUniformWithConfiguration(9,15,1,android.util.TypedValue.COMPLEX_UNIT_SP);tile.addView(number);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(4),dp(2),dp(2));row.addView(tile,p);
     }
     AlertDialog popup(String title,LinearLayout content){
@@ -540,32 +560,6 @@ public class MainActivity extends Activity {
                 renderVideos(content,videos,25,Instant.now());popup("Ficha del canal",content);
             });
         });
-    }
-    void showStatistics(JSONObject j,Instant observed){
-        LinearLayout content=column();content.setPadding(dp(12),dp(5),dp(12),dp(10));
-        JSONObject sn=obj(j,"snippet");content.addView(text(sn.optString("title","Video"),17,FG,true));note(content,sn.optString("channelTitle"));
-        note(content,"Publicado: "+localDate(sn.optString("publishedAt")));
-        LinearLayout readings=column();content.addView(readings);statReading(readings,j,observed,"Consulta original");
-        LinearLayout latest=column();content.addView(latest);
-        LinearLayout explanation=card(content);explanation.addView(text("Evolución histórica",16,FG,true));
-        note(explanation,"La API pública entrega contadores acumulados actuales, no una serie histórica. Una sola medición no permite determinar si el video crece o pierde interés.");
-        note(explanation,"Puedes volver a consultar para comparar dos lecturas reales durante esta ventana. El historial de largo plazo y las métricas de crecimiento aún requieren datos y permisos.");
-        String id=j.optString("id");
-        final AlertDialog[] dialog=new AlertDialog[1];
-        action(content,"Actualizar contadores",()->{
-            if(id.isEmpty())return;
-            run((token,api)->{
-                stage(token,"Actualizando estadísticas","Consultando contadores públicos del video.");JSONArray v=api.videos(id);
-                finish(token,()->{if(dialog[0]==null||!dialog[0].isShowing())return;JSONObject fresh=v.optJSONObject(0);
-                    if(fresh==null){toast("Video no disponible.");return;}
-                    latest.removeAllViews();statReading(latest,fresh,Instant.now(),"Última consulta");});
-            });
-        });
-        dialog[0]=popup("Estadísticas del video",content);
-    }
-    void statReading(LinearLayout target,JSONObject j,Instant observed,String label){
-        LinearLayout c=card(target);c.addView(text(label,14,FG,true));note(c,localDate(observed.toString())+" · YouTube Data API");
-        JSONObject st=obj(j,"statistics");LinearLayout row=new LinearLayout(this);addMetric(row,"VISTAS",metric(st,"viewCount"),CYAN,0xffe3f3fa);addMetric(row,"ME GUSTA",metric(st,"likeCount"),PINK,0xfffae9f3);addMetric(row,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xfffff2dc);c.addView(row);
     }
     void history(){
         shell("history","Historial personal · consultas guardadas");
