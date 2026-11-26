@@ -8,6 +8,8 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 import android.os.*;
 import android.content.Intent;
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.google.android.gms.auth.api.identity.Identity;
 import com.google.android.gms.auth.api.identity.AuthorizationRequest;
 import com.google.android.gms.auth.api.identity.AuthorizationResult;
@@ -53,7 +55,48 @@ public class MainActivity extends Activity {
     private boolean busy=false;
     private String current="home";
     private final String[] regions={"NI","MX","US","ES","CO","AR","BR"};
+    private final String[] countryNames={"Nicaragua","México","Estados Unidos","España","Colombia","Argentina","Brasil"};
     private final String[] categories={"0","10","20","1"};
+    private static final String[][] THEMES={
+        {"Creadores de contenido y vlogs","creadores de contenido | vlog | youtuber"},
+        {"Streaming y directos (tema)","streaming | streamer | directo | livestream"},
+        {"Nacional y cultura local","@country"},
+        {"Comida, recetas y gastronomía","recetas | comida | cocina | gastronomía"},
+        {"Videos creados con IA","video generado con IA | AI generated video | historias con IA"},
+        {"Inteligencia artificial y herramientas","inteligencia artificial | herramientas IA | AI tools"},
+        {"Historias animadas y frutiseries","historias animadas | frutiseries | fruit animation"},
+        {"Humor, memes y entretenimiento","humor | memes | comedia | funny"},
+        {"Retos y experimentos","retos | experimentos | challenge"},
+        {"Historias, misterio y terror","historias de terror | misterio | relatos"},
+        {"Animales y mascotas","gatos | perros | animales | mascotas"},
+        {"Tecnología y gadgets","tecnología | gadgets | smartphones"},
+        {"Tutoriales y educación","tutorial | cómo hacer | aprendizaje"},
+        {"Programación y desarrollo","programación | desarrollo software | coding"},
+        {"Negocios y emprendimiento","emprendimiento | negocios | small business"},
+        {"Finanzas y economía","finanzas personales | economía | inversión"},
+        {"Deportes","deportes | fútbol | highlights"},
+        {"Salud, ejercicio y bienestar","ejercicio | fitness | bienestar"},
+        {"Viajes, turismo y aventura","viajes | turismo | adventure"},
+        {"Belleza, moda y estilo","maquillaje | moda | belleza"},
+        {"Arte, diseño y manualidades","arte | diseño | manualidades | DIY"},
+        {"Ciencia y curiosidades","ciencia | curiosidades | science"},
+        {"Documentales e historia","documental | historia | documentary"},
+        {"Noticias y actualidad","noticias | actualidad | news"},
+        {"Podcasts y entrevistas","podcast | entrevista"},
+        {"Música relajante y ASMR","música relajante | ASMR | sleep music"},
+        {"Motivación y desarrollo personal","motivación | desarrollo personal"},
+        {"Automóviles y motocicletas","autos | motocicletas | car reviews"},
+        {"Hogar y jardinería","hogar | jardinería | decoración"},
+        {"Reseñas y comparaciones","reseña | review | comparativa"},
+        {"Cultura digital y redes sociales","redes sociales | cultura digital | tendencias internet"}
+    };
+    String[] catalogOptions(){
+        String[] labels=new String[4+THEMES.length];
+        labels[0]="General · catálogo oficial";labels[1]="Música · catálogo oficial";
+        labels[2]="Videojuegos · catálogo oficial";labels[3]="Cine y animación · catálogo oficial";
+        for(int i=0;i<THEMES.length;i++)labels[i+4]=THEMES[i][0]+" · tema";
+        return labels;
+    }
     interface Work { void run(int token,YouTubeApi api) throws Exception; }
     int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     @Override public void onCreate(Bundle b){
@@ -277,8 +320,18 @@ public class MainActivity extends Activity {
         note(controls,"Región del catálogo");
         region=spinner(controls,new String[]{"Nicaragua","México","Estados Unidos","España","Colombia","Argentina","Brasil"});
         note(controls,"Categoría del catálogo");
-        category=spinner(controls,new String[]{"General","Música","Videojuegos","Cine y animación"});
-        action(controls,"Consultar catálogo popular",()->popular());
+        category=spinner(controls,catalogOptions());
+        TextView catalogHint=text("",12,MUTED,false);controls.addView(catalogHint);
+        Button catalogButton=button("Consultar catálogo popular",this::popular);
+        LinearLayout.LayoutParams catalogParams=new LinearLayout.LayoutParams(-1,-2);catalogParams.topMargin=dp(7);controls.addView(catalogButton,catalogParams);
+        category.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){
+                boolean official=position<categories.length;
+                catalogButton.setText(official?"Consultar catálogo popular":"Buscar videos del tema");
+                catalogHint.setText(official?"Lista oficial de YouTube disponible para esta región.":"Búsqueda temática por palabras clave, no clasificación oficial. Consume 1–3 llamadas de búsqueda según resultados.");
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
+        });
         action(controls,"Explorar un nicho",this::explore);
         LinearLayout info=card(body);
         info.addView(text("Demanda, crecimiento y sostenibilidad",17,CYAN,true));
@@ -316,7 +369,20 @@ public class MainActivity extends Activity {
         return api.channels(String.join(",",ids));
     }
     void popular(){
-        String reg=regions[region.getSelectedItemPosition()], cat=categories[category.getSelectedItemPosition()];
+        int regionIndex=region.getSelectedItemPosition(), selected=category.getSelectedItemPosition();
+        if(regionIndex<0||selected<0)return;
+        String reg=regions[regionIndex];
+        if(selected>=categories.length){
+            String[] theme=THEMES[selected-categories.length];
+            String q="@country".equals(theme[1])?countryNames[regionIndex]:theme[1];
+            String explanation="Muestra temática por palabras clave; no es una categoría oficial ni un ranking de búsquedas.";
+            if("@country".equals(theme[1]))explanation+=" El país se utiliza como término de búsqueda y no verifica el origen del creador.";
+            if(selected==5)explanation+=" Incluye contenido relacionado con streaming, no necesariamente transmisiones activas.";
+            if(selected==8)explanation+=" La búsqueda no confirma que cada video haya sido generado con IA.";
+            searchTopic(q,reg,"viewCount",theme[0],explanation);
+            return;
+        }
+        String cat=categories[selected];
         run((token,api)->{
             stage(token,"Consultando catálogo","Obteniendo videos de la región seleccionada.");JSONArray videos=api.popular(reg,cat);stage(token,"Cargando canales","Recuperando datos públicos de los creadores.");JSONArray channels=relatedChannels(api,videos);
             finish(token,()->results("Catálogo popular · "+reg,videos,channels,"Orden del catálogo oficial; no equivale a las búsquedas más populares."));
@@ -325,13 +391,16 @@ public class MainActivity extends Activity {
     void search(){
         String q=query.getText().toString().trim();if(q.isEmpty()||q.length()>500){query.setError("Escribe un tema de hasta 500 caracteres");return;}
         String reg=regions[region.getSelectedItemPosition()];String sort=new String[]{"viewCount","date","relevance"}[order.getSelectedItemPosition()];
+        searchTopic(q,reg,sort,q,"Resultados de búsqueda; una muestra pequeña no prueba falta de demanda.");
+    }
+    void searchTopic(String q,String reg,String sort,String label,String explanation){
         run((token,api)->{
             JSONArray videos=new JSONArray();int used=7;
             for(int days:new int[]{7,30,90}){used=days;stage(token,"Buscando videos","Explorando publicaciones de los últimos "+days+" días.");videos=api.search(q,reg,days,sort);if(videos.length()>=10)break;}
             final int span=used;final JSONArray found=videos;stage(token,"Cargando canales","Recuperando información pública de los creadores.");JSONArray channels=relatedChannels(api,found);
             finish(token,()->{if(account==null)return;
                 store.add(account.getId().toLowerCase(Locale.ROOT),q,reg,span,sort);
-                results(q+" · "+reg+" · "+span+" días",found,channels,"Resultados de búsqueda; una muestra pequeña no prueba falta de demanda.");
+                results(label+" · "+reg+" · "+span+" días",found,channels,explanation);
                 if(driveEnabled)inspectBackup();
             });
         });
@@ -353,13 +422,38 @@ public class MainActivity extends Activity {
             JSONObject sn=obj(j,"snippet"),st=obj(j,"statistics"),cd=obj(j,"contentDetails");
             LinearLayout c=card(target);
             c.addView(text(String.format(Locale.ROOT,"%02d  ·  VIDEO",i+1),11,CYAN,true));
-            c.addView(text(sn.optString("title","Sin título"),19,FG,true));
-            note(c,sn.optString("channelTitle")+" · "+localDate(sn.optString("publishedAt"))+" · "+duration(cd.optString("duration")));
+            LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.TOP);
+            LinearLayout copy=column();copy.addView(text(sn.optString("title","Sin título"),19,FG,true));
+            note(copy,sn.optString("channelTitle")+" · "+localDate(sn.optString("publishedAt"))+" · "+duration(cd.optString("duration")));
+            top.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+            FrameLayout thumb=videoThumbnail(sn,j.optString("id"));
+            int widthDp=getResources().getConfiguration().screenWidthDp;
+            int thumbWidth=widthDp<360?92:112;
+            LinearLayout.LayoutParams thumbParams=new LinearLayout.LayoutParams(dp(thumbWidth),dp(thumbWidth*9/16));thumbParams.leftMargin=dp(9);
+            top.addView(thumb,thumbParams);c.addView(top);
             metricTile(c,"VISUALIZACIONES",metric(st,"viewCount"),CYAN,0xff194b71);
             LinearLayout stats=new LinearLayout(this);addMetric(stats,"ME GUSTA",metric(st,"likeCount"),0xffff9ed0,0xff60345f);addMetric(stats,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xff534a47);c.addView(stats);
             action(c,"Abrir en YouTube",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));
             action(c,"Ver canal",()->loadChannel(sn.optString("channelId")));
         }
+    }
+    FrameLayout videoThumbnail(JSONObject snippet,String videoId){
+        FrameLayout frame=new FrameLayout(this);frame.setBackground(bg(0xff24577c,10));frame.setClipToOutline(true);
+        ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);image.setImageResource(R.drawable.video_placeholder);
+        frame.addView(image,new FrameLayout.LayoutParams(-1,-1));
+        JSONObject thumbnails=obj(snippet,"thumbnails");String url="";
+        for(String size:new String[]{"medium","high","default"}){
+            String candidate=obj(thumbnails,size).optString("url","");
+            Uri uri=Uri.parse(candidate);String host=uri.getHost();
+            if("https".equalsIgnoreCase(uri.getScheme())&&host!=null&&(host.equals("ytimg.com")||host.endsWith(".ytimg.com"))){url=candidate;break;}
+        }
+        if(!url.isEmpty()){
+            Glide.with(this).load(url).centerCrop().placeholder(R.drawable.video_placeholder).error(R.drawable.video_placeholder)
+                .diskCacheStrategy(DiskCacheStrategy.NONE).into(image);
+        }
+        frame.setContentDescription("Abrir video en YouTube: "+snippet.optString("title",""));
+        if(!videoId.isEmpty())frame.setOnClickListener(v->open("https://www.youtube.com/watch?v="+Uri.encode(videoId)));
+        return frame;
     }
     void metricTile(LinearLayout parent,String label,String value,int accent,int fill){
         LinearLayout tile=column();tile.setPadding(dp(10),dp(8),dp(10),dp(8));tile.setBackground(bg(fill,12));

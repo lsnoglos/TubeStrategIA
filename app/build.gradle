@@ -6,8 +6,8 @@ android {
         applicationId 'com.lsnoglos.tubestrategia'
         minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName '0.4.0'
+        versionCode 6
+        versionName '0.4.1'
         def endpoint = System.getenv('TUBESTRATEGIA_BACKEND_URL') ?: ''
         if (endpoint && !endpoint.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')) throw new GradleException('URL del backend inválida')
         buildConfigField 'String', 'BACKEND_URL', '"' + endpoint + '"'
@@ -17,6 +17,7 @@ android {
 }
 
 dependencies {
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
     implementation 'com.google.android.gms:play-services-auth:22.0.0'
     implementation 'androidx.credentials:credentials:1.5.0'
     implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'

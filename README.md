@@ -1,5 +1,5 @@
 # TubeStrategIA
-Aplicación Android nativa en español para investigación de mercado de YouTube. Versión 0.4.0 (piloto privado).
+Aplicación Android nativa en español para investigación de mercado de YouTube. Versión 0.4.1 (piloto privado).
 
 ## Instalar
 Android 8.0 o superior. En GitHub Actions, abrir la ejecución exitosa más reciente y descargar el artefacto TubeStrategIA-firmada. Extraer TubeStrategIA.apk e instalar. La firma permanente se verifica en cada compilación. La primera prueba debe realizarse con una cuenta autorizada en Google OAuth y TEST_EMAILS del backend.
@@ -12,6 +12,9 @@ Inicio de sesión Google, consultas públicas mediante Apps Script, límite comp
 
 ## Interfaz 0.4.0
 Paleta azul petróleo y cian, encabezados fucsia-azul, tarjetas de estadísticas diferenciadas, fechas locales y duraciones legibles. Indicador de carga indeterminado animado con fases reales de consulta y respaldo; mensajes visibles de error. Acceso con información sobre permisos y cuenta con última sincronización confirmada durante la sesión. No implica verificación oficial de Google.
+
+## Catálogo 0.4.1
+Miniaturas oficiales de videos a la derecha del título, con carga asincrónica Glide, placeholder y apertura en YouTube. No se realizan consultas API adicionales para obtener las URLs de las imágenes. Caché de disco de miniaturas deshabilitada. Cuatro opciones de catálogo oficial y 31 temas predefinidos mediante el buscador existente; estos últimos consumen 1–3 llamadas search y no son categorías oficiales. El tema nacional busca el nombre del país elegido, sin verificar origen del creador. Streaming e IA son búsquedas temáticas, no verificaciones de emisión en vivo ni de generación por IA. No requiere actualizar Apps Script.
 
 ## Alcance y limitaciones
 Catálogo regional, búsqueda adaptativa, fichas de videos y canales e historial personal de consultas. Todavía no existe recolección histórica de estadísticas externas, índices derivados ni módulo de planificación. Se requieren pruebas reales de acceso, consultas y sincronización en dos dispositivos; antes de una distribución pública debe reforzarse la validación de sesiones.
