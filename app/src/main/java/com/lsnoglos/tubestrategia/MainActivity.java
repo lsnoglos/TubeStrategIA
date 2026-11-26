@@ -601,15 +601,11 @@ public class MainActivity extends Activity {
         note(ref,"Descripción pública");String description=sn.optString("description");
         TextView desc=text(description.isEmpty()?"No disponible":description,12,MUTED,false);desc.setMaxLines(5);desc.setEllipsize(android.text.TextUtils.TruncateAt.END);ref.addView(desc);
         if(!description.isEmpty())action(ref,"Mostrar descripción",()->{desc.setMaxLines(Integer.MAX_VALUE);desc.setEllipsize(null);});
-        LinearLayout form=card(body);form.addView(text("¿De qué quieres que trate tu video?",19,FG,true));
-        EditText idea=planInput("Ej. Una historia de un gato que rescata a un perro",1600);form.addView(idea);
-        note(form,"Opcional: observaciones del video o transcripción propia/autorizada");
-        EditText notes=planInput("Gancho, narración, ritmo, escenas, final, o transcripción autorizada...",12000);form.addView(notes);
-        note(form,"No se extrae el diálogo automáticamente. Sin notas, el prompt solo usa metadatos y solicita una estructura creativa nueva.");
+        LinearLayout form=card(body);form.addView(text("Agregar algún comentario para crear la nueva idea",17,FG,true));
+        EditText comment=planInput("Opcional: indica alguna preferencia, enfoque o detalle que quieras incorporar...",2000);form.addView(comment);
         LinearLayout output=card(body);output.setVisibility(View.GONE);
         action(form,"Generar prompt",()->{
-            String subject=idea.getText().toString().trim();if(subject.isEmpty()){idea.setError("Escribe de qué tratará tu video");return;}
-            String prompt=VideoPlan.prompt(video,subject,notes.getText().toString().trim(),duration(cd.optString("duration")));
+            String prompt=VideoPlan.prompt(video,comment.getText().toString().trim(),duration(cd.optString("duration")));
             output.removeAllViews();output.setVisibility(View.VISIBLE);output.addView(text("Prompt listo para ChatGPT",18,FG,true));
             EditText result=planInput("",30000);result.setText(prompt);result.setMinLines(8);result.setMaxLines(18);output.addView(result);
             action(output,"Copiar prompt",()->{android.content.ClipboardManager cb=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);cb.setPrimaryClip(android.content.ClipData.newPlainText("Plan TubeStrategIA",result.getText().toString()));toast("Prompt copiado.");});
