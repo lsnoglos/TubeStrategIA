@@ -28,8 +28,8 @@ import java.text.NumberFormat;
 import java.time.Instant;
 
 public class MainActivity extends Activity {
-    private static final int BG=0xff12345a, PANEL=0xff163e62, FG=0xfff8fbff, MUTED=0xffd2e6f5, RED=0xffef476f;
-    private static final int PINK=0xffec087b, PURPLE=0xff7545c7, BLUE=0xff176bb5, CYAN=0xff58e4f1, GREEN=0xffb5f36a, YELLOW=0xffffd66a;
+    private static final int BG=0xffeff5fb, PANEL=0xffffffff, FG=0xff18324c, MUTED=0xff4c647b, RED=0xffbd2854;
+    private static final int PINK=0xffbd176f, PURPLE=0xff7545c7, BLUE=0xff176bb5, CYAN=0xff086e89, GREEN=0xff287443, YELLOW=0xff86570e;
     private Dialog loadingDialog;
     private TextView loadingTitle,loadingDetail;
     private Instant lastSync;
@@ -50,8 +50,14 @@ public class MainActivity extends Activity {
     private CredentialManager credentialManager;
     private static final String GOOGLE_WEB_CLIENT="462342787368-pi9u7cfa8na7df34llfed6hc9so6ocf5.apps.googleusercontent.com";
     private int generation=0;
-    private JSONArray lastVideos=new JSONArray(), lastChannels=new JSONArray();
-    private String lastContext="";
+    private static final class VideoResult {
+        final String context,explanation;final JSONArray videos;final Instant observed;
+        VideoResult(String c,String e,JSONArray v){context=c;explanation=e;videos=v;observed=Instant.now();}
+    }
+    private VideoResult homeResult,catalogResult,nicheResult;
+    private int homeRegion=0,catalogRegion=0,catalogCategory=0,nicheRegion=0,nicheOrder=0;
+    private String nicheQuery="";
+    private boolean catalogEdit=true,nicheEdit=true,homeAutoAttempted=false;
     private boolean busy=false;
     private String current="home";
     private final String[] regions={"NI","MX","US","ES","CO","AR","BR"};
@@ -101,7 +107,7 @@ public class MainActivity extends Activity {
     int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
-        getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
+        getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         credentialManager=CredentialManager.create(this);
         store=new HistoryStore(this);
         loginScreen("");
@@ -110,7 +116,7 @@ public class MainActivity extends Activity {
     void loginScreen(String message){
         generation++;busy=false;current="login";
         root=column();root.setGravity(Gravity.CENTER);root.setPadding(dp(24),dp(24),dp(24),dp(24));
-        ScrollView loginScroll=new ScrollView(this);loginScroll.setFillViewport(true);loginScroll.setBackground(gradient(BG,0xff147b98,0));loginScroll.addView(root);setContentView(loginScroll);
+        ScrollView loginScroll=new ScrollView(this);loginScroll.setFillViewport(true);loginScroll.setBackground(gradient(BG,0xffe5f3f9,0));loginScroll.addView(root);setContentView(loginScroll);
         ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.ic_launcher);root.addView(logo,new LinearLayout.LayoutParams(dp(88),dp(88)));
         TextView title=text("TubeStrategIA",30,FG,true);title.setGravity(Gravity.CENTER);root.addView(title);
         TextView sub=text("Inteligencia de mercado para YouTube",15,MUTED,false);sub.setGravity(Gravity.CENTER);root.addView(sub);
@@ -165,7 +171,7 @@ public class MainActivity extends Activity {
     }
     void signOut(){
         if(syncBusy){toast("Finaliza o cancela la sincronización primero.");return;}
-        account=null;driveToken=null;remoteBaseline=null;lastSync=null;driveEnabled=false;lastVideos=new JSONArray();lastChannels=new JSONArray();lastContext="";
+        account=null;driveToken=null;remoteBaseline=null;lastSync=null;driveEnabled=false;homeResult=null;catalogResult=null;nicheResult=null;homeAutoAttempted=false;homeRegion=0;catalogRegion=0;catalogCategory=0;nicheRegion=0;nicheOrder=0;nicheQuery="";catalogEdit=true;nicheEdit=true;
         loginScreen("Sesión cerrada.");
         try{credentialManager.clearCredentialStateAsync(new ClearCredentialStateRequest(),null,getMainExecutor(),new CredentialManagerCallback<Void,ClearCredentialException>(){
             @Override public void onResult(Void result){}
@@ -266,7 +272,7 @@ public class MainActivity extends Activity {
     void showLoading(String title,String detail){
         hideLoading();if(isFinishing()||isDestroyed())return;
         Dialog d=new Dialog(this);loadingDialog=d;d.requestWindowFeature(Window.FEATURE_NO_TITLE);d.setCancelable(false);
-        LinearLayout panel=column();panel.setGravity(Gravity.CENTER);panel.setPadding(dp(24),dp(24),dp(24),dp(20));panel.setBackground(gradient(0xff15345c,0xff21698a,24));
+        LinearLayout panel=column();panel.setGravity(Gravity.CENTER);panel.setPadding(dp(24),dp(24),dp(24),dp(20));panel.setBackground(bg(0xfff5faff,24));
         WaveLoader wave=new WaveLoader(this);panel.addView(wave,new LinearLayout.LayoutParams(-1,dp(96)));
         loadingTitle=text(title,21,FG,true);loadingTitle.setGravity(Gravity.CENTER);panel.addView(loadingTitle);
         loadingDetail=text(detail,14,MUTED,false);loadingDetail.setGravity(Gravity.CENTER);panel.addView(loadingDetail);
@@ -281,160 +287,206 @@ public class MainActivity extends Activity {
     }
     void note(LinearLayout l,String s){l.addView(text(s,13,MUTED,false));}
     Button button(String label,Runnable action){
-        Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(FG);b.setTextSize(13);b.setMinHeight(dp(48));b.setPadding(dp(8),dp(8),dp(8),dp(8));b.setBackgroundTintList(null);
-        boolean primary=label.startsWith("Buscar")||label.startsWith("Consultar catálogo")||label.startsWith("Explorar")||label.startsWith("Sincronizar");
-        GradientDrawable shape=primary?gradient(0xffbc056e,0xff4451b9,12):bg(0xff24577c,12);
-        if(!primary)shape.setStroke(dp(1),0xff387399);
-        b.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x40ffffff),shape,null));b.setOnClickListener(v->action.run());return b;
+        Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(FG);b.setTextSize(13);
+        b.setMinHeight(dp(44));b.setMinimumHeight(dp(44));b.setMinimumWidth(0);b.setMinWidth(0);
+        b.setPadding(dp(7),dp(5),dp(7),dp(5));b.setBackgroundTintList(null);
+        boolean primary=label.startsWith("Buscar")||label.startsWith("Consultar")||label.startsWith("Actualizar")||label.startsWith("Sincronizar");
+        GradientDrawable shape=primary?gradient(0xffbc056e,0xff4451b9,11):bg(0xffe9f1fa,11);
+        if(primary)b.setTextColor(Color.WHITE);else shape.setStroke(dp(1),0xffcbd9e9);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x24000000),shape,null));b.setOnClickListener(v->action.run());return b;
     }
-    void action(LinearLayout l,String title,Runnable action){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(7);l.addView(button(title,action),p);}
+    void action(LinearLayout l,String title,Runnable action){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(5);l.addView(button(title,action),p);}
+    void rowAction(LinearLayout row,String title,Runnable action){
+        Button b=button(title,action);b.setTextSize(12);b.setMinHeight(dp(40));b.setMinimumHeight(dp(40));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(3),dp(2),0);row.addView(b,p);
+    }
     LinearLayout card(LinearLayout target){
-        LinearLayout l=column();GradientDrawable shape=bg(PANEL,18);shape.setStroke(dp(1),0xff387399);l.setBackground(shape);l.setPadding(dp(15),dp(13),dp(15),dp(13));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(10);target.addView(l,p);return l;
+        LinearLayout l=column();GradientDrawable shape=bg(PANEL,14);shape.setStroke(dp(1),0xffd6e1ed);l.setBackground(shape);l.setPadding(dp(11),dp(9),dp(11),dp(9));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(8);target.addView(l,p);return l;
+    }
+    void rememberFilters(){
+        if("catalog".equals(current)&&catalogEdit&&region!=null&&category!=null){catalogRegion=region.getSelectedItemPosition();catalogCategory=category.getSelectedItemPosition();}
+        if("niche".equals(current)&&nicheEdit&&region!=null&&order!=null&&query!=null){nicheRegion=region.getSelectedItemPosition();nicheOrder=order.getSelectedItemPosition();nicheQuery=query.getText().toString();}
+        if("home".equals(current)&&region!=null)homeRegion=region.getSelectedItemPosition();
     }
     void shell(String name,String subtitle){
-        generation++;busy=false;current=name;
-        root=column();root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{BG,0xff146b86}));root.setPadding(dp(12),dp(8),dp(12),dp(8));setContentView(root);
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setBackground(gradient(0xffbc056e,0xff176bb5,16));header.setPadding(dp(12),dp(5),dp(8),dp(5));
-        TextView title=text("TubeStrategIA",23,FG,true);
-        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(button("Mi cuenta",this::accountMenu));root.addView(header);
+        generation++;busy=false;current=name;region=null;category=null;order=null;query=null;
+        root=column();root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{BG,0xffe8f4f8}));root.setPadding(dp(10),dp(7),dp(10),dp(6));setContentView(root);
+        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setBackground(gradient(0xffbc056e,0xff176bb5,14));header.setPadding(dp(10),dp(4),dp(5),dp(4));
+        TextView title=text("TubeStrategIA",20,Color.WHITE,true);
+        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        Button about=button("ⓘ",this::about);about.setContentDescription("Acerca de TubeStrategIA");about.setTextColor(Color.WHITE);about.setBackground(bg(0x30ffffff,10));header.addView(about,new LinearLayout.LayoutParams(dp(40),dp(44)));
+        Button accountButton=button("Mi cuenta",this::accountMenu);accountButton.setTextColor(Color.WHITE);accountButton.setBackground(bg(0x30ffffff,10));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-2,dp(44));ap.leftMargin=dp(3);header.addView(accountButton,ap);root.addView(header);
         note(root,subtitle);
-        status=text(BuildConfig.BACKEND_URL.isEmpty()?"YouTube · servicio central pendiente":"YouTube · cuota compartida de la aplicación",12,MUTED,false);root.addView(status);
+        status=text("",12,MUTED,false);status.setVisibility(View.GONE);root.addView(status);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout nav=new LinearLayout(this);
-        String[] names={"Inicio","Buscar","Canales","Historial"};
-        Runnable[] acts={this::home,this::explore,this::showChannels,this::history};
-        String[] keys={"home","search","channels","history"};
-        for(int i=0;i<names.length;i++){Button b=button(names[i],acts[i]);b.setTextSize(12);
-            boolean selected=name.equals(keys[i])||(i==1&&name.equals("results"))||(i==2&&name.equals("detail"));
-            b.setBackground(selected?gradient(0xffbc056e,0xff4451b9,12):bg(0xff153b60,12));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(5),dp(2),0);nav.addView(b,p);}
+        String[] names={"Inicio","Catálogo","Nichos","Historial"};
+        Runnable[] acts={this::home,this::catalog,this::explore,this::history};
+        String[] keys={"home","catalog","niche","history"};
+        for(int i=0;i<names.length;i++){final Runnable go=acts[i];Button b=button(names[i],()->{rememberFilters();go.run();});b.setTextSize(12);
+            boolean selected=name.equals(keys[i]);b.setTextColor(selected?Color.WHITE:FG);b.setBackground(selected?gradient(0xffbc056e,0xff4451b9,11):bg(0xffdce8f4,11));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(4),dp(2),0);nav.addView(b,p);}
         root.addView(nav);
     }
-    void home(){
-        shell("home","Panorama · información pública y actual");
-        LinearLayout intro=card(body);
-        intro.setBackground(gradient(0xff7d176e,0xff225d9e,18));intro.addView(text("Observa el mercado",23,FG,true));
-        note(intro,"Explora publicaciones de YouTube por región o investiga un tema específico. Las listas son muestras de la API, no un censo del mercado.");
-        LinearLayout controls=card(body);
-        note(controls,"Región del catálogo");
-        region=spinner(controls,new String[]{"Nicaragua","México","Estados Unidos","España","Colombia","Argentina","Brasil"});
-        note(controls,"Categoría del catálogo");
-        category=spinner(controls,catalogOptions());
-        TextView catalogHint=text("",12,MUTED,false);controls.addView(catalogHint);
-        Button catalogButton=button("Consultar catálogo popular",this::popular);
-        LinearLayout.LayoutParams catalogParams=new LinearLayout.LayoutParams(-1,-2);catalogParams.topMargin=dp(7);controls.addView(catalogButton,catalogParams);
-        category.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-            @Override public void onItemSelected(android.widget.AdapterView<?> parent,View view,int position,long id){
-                boolean official=position<categories.length;
-                catalogButton.setText(official?"Consultar catálogo popular":"Buscar videos del tema");
-                catalogHint.setText(official?"Lista oficial de YouTube disponible para esta región.":"Búsqueda temática por palabras clave, no clasificación oficial. Consume 1–3 llamadas de búsqueda según resultados.");
-            }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent){}
-        });
-        action(controls,"Explorar un nicho",this::explore);
-        LinearLayout info=card(body);
-        info.addView(text("Demanda, crecimiento y sostenibilidad",17,CYAN,true));
-        note(info,"Aún no hay historial ni fuente de interés de búsqueda conectada. El catálogo popular no mide volumen de búsquedas. Los índices y el radar requieren autorización y mediciones suficientes.");
-        action(info,"Consultar Google Trends (externo)",()->open("https://trends.google.com/trends/"));
-        action(info,"Políticas y privacidad",this::policies);
+    void setStatus(String value){if(status!=null){status.setText(value);status.setVisibility(value.isEmpty()?View.GONE:View.VISIBLE);}}
+    void about(){
+        LinearLayout c=column();c.setPadding(dp(16),dp(8),dp(16),dp(12));
+        c.addView(text("TubeStrategIA · Inteligencia de mercado",18,FG,true));
+        note(c,"Inicio resume la muestra popular regional de YouTube. Catálogo explora listas oficiales y temas predefinidos; Nichos permite investigar cualquier palabra clave.");
+        note(c,"Popularidad acumulada no equivale a demanda de búsqueda, crecimiento reciente ni interés de las últimas 24 horas.");
+        note(c,"No tenemos series históricas de terceros ni autorización para métricas avanzadas. No inventamos curvas ni puntuaciones. Time Machine se habilitará cuando existan mediciones y permisos.");
+        note(c,"Fuente: YouTube Data API. Cuota compartida; el historial personal se guarda en SQLite y, si lo autorizas, en Drive.");
+        action(c,"Privacidad y condiciones",this::policies);
+        popup("Acerca de",c);
     }
     Spinner spinner(LinearLayout l,String[] options){
         Spinner s=new Spinner(this);ArrayAdapter<String>a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,options);a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);s.setAdapter(a);l.addView(s);return s;
     }
-    void explore(){
-        shell("search","Explorador · búsqueda adaptativa por antigüedad");
-        LinearLayout l=card(body);
-        query=new EditText(this);query.setSingleLine(true);query.setHint("Gatos, IA, frutiseries...");query.setTextColor(FG);query.setHintTextColor(MUTED);l.addView(query);
-        note(l,"Mercado de disponibilidad de videos (no ubicación de audiencia)");
-        region=spinner(l,new String[]{"Nicaragua","México","Estados Unidos","España","Colombia","Argentina","Brasil"});
-        note(l,"Orden de YouTube");
-        order=spinner(l,new String[]{"Más visualizaciones","Más recientes","Relevancia"});
-        action(l,"Buscar hasta 10 publicaciones",()->search());
-        note(l,"Se amplía de 7 a 30 y 90 días si hay menos de diez resultados. Frecuencia de publicación y análisis de demanda: pendientes.");
-        if(lastVideos.length()>0){note(body,"Última consulta: "+lastContext);renderVideos(body,lastVideos,10);}
+    void home(){
+        shell("home","Panorama de YouTube");
+        LinearLayout controls=card(body);controls.addView(text("Top 3 · panorama regional",19,FG,true));
+        note(controls,"Región");region=spinner(controls,countryNames);region.setSelection(Math.max(0,homeRegion));
+        action(controls,"Actualizar panorama",this::refreshHome);
+        if(homeResult!=null){
+            note(body,homeResult.context+" · "+localDate(homeResult.observed.toString()));
+            note(body,"Contadores acumulados al consultar. Top 3 dentro de "+homeResult.videos.length()+" videos del catálogo popular, no de todo YouTube ni de las últimas 24 horas.");
+            renderTop("Más vistos","viewCount",CYAN,homeResult);
+            renderTop("Más me gusta","likeCount",PINK,homeResult);
+            renderTop("Más comentados","commentCount",YELLOW,homeResult);
+        }else note(body,"Actualiza para conocer los videos destacados de la región.");
+        if(!homeAutoAttempted&&homeResult==null&&account!=null){final int screen=generation;uiHandler.postDelayed(()->autoHome(screen),350);}
     }
-    boolean ready(){if(busy){status.setText("Hay una consulta en curso.");return false;}if(account==null){loginScreen("");return false;}if(syncBusy){status.setText("Finaliza la sincronización primero.");return false;}if(BuildConfig.BACKEND_URL.isEmpty()){status.setText("El administrador aún no ha desplegado el servicio central de YouTube.");return false;}return true;}
+    void autoHome(int screen){
+        if(isDestroyed()||isFinishing()||account==null||screen!=generation||!"home".equals(current)||homeAutoAttempted)return;
+        if(syncBusy){uiHandler.postDelayed(()->autoHome(screen),500);return;}
+        if(busy)return;homeAutoAttempted=true;refreshHome();
+    }
+    void refreshHome(){
+        if(region==null||region.getSelectedItemPosition()<0)return;
+        if(!ready())return;homeAutoAttempted=true;homeRegion=region.getSelectedItemPosition();String reg=regions[homeRegion];
+        run((token,api)->{
+            stage(token,"Actualizando panorama","Consultando el catálogo popular de "+reg+".");
+            JSONArray v=api.popular(reg,"0");
+            finish(token,()->{homeResult=new VideoResult("Región "+reg,"",v);home();});
+        });
+    }
+    void renderTop(String title,String key,int accent,VideoResult result){
+        LinearLayout group=card(body);group.addView(text(title,17,accent,true));
+        ArrayList<JSONObject> ranked=new ArrayList<>();
+        for(int i=0;i<result.videos.length();i++){JSONObject j=result.videos.optJSONObject(i);if(j!=null&&obj(j,"statistics").optLong(key,-1)>=0)ranked.add(j);}
+        ranked.sort((a,b)->Long.compare(obj(b,"statistics").optLong(key),obj(a,"statistics").optLong(key)));
+        if(ranked.isEmpty())note(group,"No hay contadores disponibles.");
+        for(int i=0;i<Math.min(3,ranked.size());i++){
+            JSONObject j=ranked.get(i),sn=obj(j,"snippet");
+            LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+            TextView rank=text(String.valueOf(i+1),17,accent,true);line.addView(rank,new LinearLayout.LayoutParams(dp(22),-2));
+            FrameLayout thumb=videoThumbnail(sn,j.optString("id"));line.addView(thumb,new LinearLayout.LayoutParams(dp(66),dp(38)));
+            LinearLayout copy=column();copy.setPadding(dp(8),0,0,0);TextView t=text(sn.optString("title","Sin título"),13,FG,true);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(t);
+            copy.addView(text(metric(obj(j,"statistics"),key),15,accent,true));line.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+            Button more=button("Datos",()->showStatistics(j,result.observed));more.setTextSize(11);line.addView(more,new LinearLayout.LayoutParams(dp(54),dp(44)));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(5);group.addView(line,p);
+        }
+    }
+    void catalog(){
+        shell("catalog","Catálogo · explora categorías y temas");
+        LinearLayout controls=card(body);
+        if(!catalogEdit&&catalogResult!=null){
+            controls.addView(text(catalogResult.context,16,FG,true));action(controls,"Cambiar filtros",()->{catalogEdit=true;catalog();});
+        }else{
+            note(controls,"Región del catálogo");region=spinner(controls,countryNames);region.setSelection(Math.max(0,catalogRegion));
+            note(controls,"Categoría o tema");category=spinner(controls,catalogOptions());category.setSelection(Math.max(0,catalogCategory));
+            TextView hint=text("",12,MUTED,false);controls.addView(hint);Button submit=button("Consultar catálogo",this::popular);controls.addView(submit);
+            category.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(AdapterView<?> p,View v,int position,long id){boolean official=position<categories.length;submit.setText(official?"Consultar catálogo":"Buscar videos del tema");hint.setText(official?"Lista oficial disponible para esta región.":"Búsqueda temática · 1–3 llamadas según resultados.");}
+                @Override public void onNothingSelected(AdapterView<?> p){}
+            });
+        }
+        if(catalogResult!=null)renderResult(catalogResult);
+    }
+    void explore(){
+        shell("niche","Nichos · investiga cualquier palabra clave");
+        LinearLayout l=card(body);
+        if(!nicheEdit&&nicheResult!=null){
+            l.addView(text(nicheResult.context,16,FG,true));action(l,"Cambiar filtros",()->{nicheEdit=true;explore();});
+        }else{
+            note(l,"Palabra clave");query=new EditText(this);query.setSingleLine(true);query.setHint("Gatos, IA, frutiseries...");query.setTextColor(FG);query.setHintTextColor(MUTED);query.setText(nicheQuery);l.addView(query);
+            note(l,"Región de disponibilidad");region=spinner(l,countryNames);region.setSelection(Math.max(0,nicheRegion));
+            note(l,"Orden de resultados");order=spinner(l,new String[]{"Más visualizaciones","Más recientes","Relevancia"});order.setSelection(Math.max(0,nicheOrder));
+            action(l,"Buscar videos del nicho",this::search);
+            note(l,"Búsqueda adaptativa: 7, 30 y 90 días si faltan resultados.");
+        }
+        if(nicheResult!=null)renderResult(nicheResult);
+    }
+    boolean ready(){if(busy){setStatus("Hay una consulta en curso.");return false;}if(account==null){loginScreen("");return false;}if(syncBusy){setStatus("Finaliza la sincronización primero.");return false;}if(BuildConfig.BACKEND_URL.isEmpty()){setStatus("El administrador aún no ha desplegado el servicio central de YouTube.");return false;}return true;}
     void run(Work work){
         if(!ready())return;
-        busy=true;int token=++generation;String sessionKey=account.getIdToken();status.setText("Consultando YouTube…");showLoading("Consultando YouTube","Conectando con el servicio central…");
+        busy=true;int token=++generation;String sessionKey=account.getIdToken();setStatus("Consultando YouTube…");showLoading("Consultando YouTube","Conectando con el servicio central…");
         pool.execute(()->{try{work.run(token,new YouTubeApi(sessionKey));}catch(Exception e){
-            runOnUiThread(()->{if(token==generation&&!isDestroyed()){busy=false;hideLoading();String message="No se pudo consultar. "+(e instanceof java.io.IOException&&e.getMessage()!=null&&e.getMessage().startsWith("YouTube HTTP")?e.getMessage():"Comprueba Internet y configuración.");status.setText(message);new AlertDialog.Builder(this).setTitle("Consulta no completada").setMessage(message).setPositiveButton("Entendido",null).show();}});
+            runOnUiThread(()->{if(token==generation&&!isDestroyed()){busy=false;hideLoading();String message="No se pudo consultar. "+(e instanceof java.io.IOException&&e.getMessage()!=null&&e.getMessage().startsWith("YouTube HTTP")?e.getMessage():"Comprueba Internet y configuración.");setStatus(message);new AlertDialog.Builder(this).setTitle("Consulta no completada").setMessage(message).setPositiveButton("Entendido",null).show();}});
         }});
     }
-    void finish(int token,Runnable r){runOnUiThread(()->{if(token!=generation||isFinishing()||isDestroyed())return;busy=false;hideLoading();r.run();});}
-    JSONArray relatedChannels(YouTubeApi api,JSONArray videos)throws Exception{
-        LinkedHashSet<String> ids=new LinkedHashSet<>();
-        for(int i=0;i<videos.length();i++){JSONObject j=videos.optJSONObject(i);if(j!=null){String id=obj(j,"snippet").optString("channelId");if(!id.isEmpty())ids.add(id);}}
-        return api.channels(String.join(",",ids));
-    }
+    void finish(int token,Runnable r){runOnUiThread(()->{if(token!=generation||isFinishing()||isDestroyed())return;busy=false;hideLoading();setStatus("");r.run();});}
     void popular(){
-        int regionIndex=region.getSelectedItemPosition(), selected=category.getSelectedItemPosition();
-        if(regionIndex<0||selected<0)return;
-        String reg=regions[regionIndex];
+        if(region==null||category==null)return;
+        rememberFilters();int ri=catalogRegion,selected=catalogCategory;if(ri<0||selected<0)return;
+        String reg=regions[ri];
         if(selected>=categories.length){
-            String[] theme=THEMES[selected-categories.length];
-            String q="@country".equals(theme[1])?countryNames[regionIndex]:theme[1];
-            String explanation="Muestra temática por palabras clave; no es una categoría oficial ni un ranking de búsquedas.";
-            if("@country".equals(theme[1]))explanation+=" El país se utiliza como término de búsqueda y no verifica el origen del creador.";
-            if(selected==5)explanation+=" Incluye contenido relacionado con streaming, no necesariamente transmisiones activas.";
-            if(selected==8)explanation+=" La búsqueda no confirma que cada video haya sido generado con IA.";
-            searchTopic(q,reg,"viewCount",theme[0],explanation);
-            return;
+            String[] theme=THEMES[selected-categories.length];String q="@country".equals(theme[1])?countryNames[ri]:theme[1];
+            String explanation="Muestra temática por palabras clave, no categoría oficial.";
+            if("@country".equals(theme[1]))explanation+=" No verifica el origen del creador.";
+            if(selected==5)explanation+=" No garantiza transmisiones activas.";
+            if(selected==8)explanation+=" No confirma generación con IA.";
+            searchTopic(q,reg,"viewCount",theme[0],explanation,true);return;
         }
-        String cat=categories[selected];
+        String cat=categories[selected],label=catalogOptions()[selected];
         run((token,api)->{
-            stage(token,"Consultando catálogo","Obteniendo videos de la región seleccionada.");JSONArray videos=api.popular(reg,cat);stage(token,"Cargando canales","Recuperando datos públicos de los creadores.");JSONArray channels=relatedChannels(api,videos);
-            finish(token,()->results("Catálogo popular · "+reg,videos,channels,"Orden del catálogo oficial; no equivale a las búsquedas más populares."));
+            stage(token,"Consultando catálogo","Obteniendo videos de la región seleccionada.");JSONArray v=api.popular(reg,cat);
+            finish(token,()->{catalogResult=new VideoResult(label+" · "+reg,"Lista oficial de YouTube, no volumen de búsquedas.",v);catalogEdit=false;catalog();});
         });
     }
     void search(){
-        String q=query.getText().toString().trim();if(q.isEmpty()||q.length()>500){query.setError("Escribe un tema de hasta 500 caracteres");return;}
-        String reg=regions[region.getSelectedItemPosition()];String sort=new String[]{"viewCount","date","relevance"}[order.getSelectedItemPosition()];
-        searchTopic(q,reg,sort,q,"Resultados de búsqueda; una muestra pequeña no prueba falta de demanda.");
+        if(query==null)return;rememberFilters();String q=nicheQuery.trim();
+        if(q.isEmpty()||q.length()>500){query.setError("Escribe un tema de hasta 500 caracteres");return;}
+        if(nicheRegion<0||nicheOrder<0)return;
+        searchTopic(q,regions[nicheRegion],new String[]{"viewCount","date","relevance"}[nicheOrder],q,"Muestra de búsqueda; pocos resultados no prueban baja demanda.",false);
     }
-    void searchTopic(String q,String reg,String sort,String label,String explanation){
+    void searchTopic(String q,String reg,String sort,String label,String explanation,boolean fromCatalog){
         run((token,api)->{
             JSONArray videos=new JSONArray();int used=7;
             for(int days:new int[]{7,30,90}){used=days;stage(token,"Buscando videos","Explorando publicaciones de los últimos "+days+" días.");videos=api.search(q,reg,days,sort);if(videos.length()>=10)break;}
-            final int span=used;final JSONArray found=videos;stage(token,"Cargando canales","Recuperando información pública de los creadores.");JSONArray channels=relatedChannels(api,found);
+            final int span=used;final JSONArray found=videos;
             finish(token,()->{if(account==null)return;
                 store.add(account.getId().toLowerCase(Locale.ROOT),q,reg,span,sort);
-                results(label+" · "+reg+" · "+span+" días",found,channels,explanation);
+                VideoResult result=new VideoResult(label+" · "+reg+" · "+span+" días",explanation,found);
+                if(fromCatalog){catalogResult=result;catalogEdit=false;catalog();}else{nicheResult=result;nicheEdit=false;explore();}
                 if(driveEnabled)inspectBackup();
             });
         });
     }
-    void results(String context,JSONArray videos,JSONArray channels,String explanation){
-        lastVideos=videos;lastChannels=channels;lastContext=context;
-        shell("results",context);
-        status.setText("Consultado: "+localDate(Instant.now().toString())+" · YouTube Data API");
-        note(body,explanation);note(body,"Mostrando "+Math.min(10,videos.length())+" de "+videos.length()+" resultados obtenidos.");
-        if(videos.length()==0)note(body,"Evidencia insuficiente. Prueba sinónimos u otro mercado.");
-        renderVideos(body,videos,10);
-        action(body,"Ver canales de esta muestra",this::showChannels);
+    void renderResult(VideoResult result){
+        note(body,"YouTube · "+localDate(result.observed.toString())+" · "+Math.min(10,result.videos.length())+" de "+result.videos.length()+" videos");
+        note(body,result.explanation);
+        if(result.videos.length()==0)note(body,"Evidencia insuficiente. Prueba sinónimos u otra región.");
+        renderVideos(body,result.videos,10,result.observed);
     }
     static JSONObject obj(JSONObject j,String k){JSONObject v=j.optJSONObject(k);return v==null?new JSONObject():v;}
     String metric(JSONObject s,String k){String n=s.optString(k,"");try{return NumberFormat.getIntegerInstance(new Locale("es","NI")).format(Long.parseLong(n));}catch(Exception e){return "No disponible";}}
-    void renderVideos(LinearLayout target,JSONArray videos,int limit){
+    void renderVideos(LinearLayout target,JSONArray videos,int limit,Instant observed){
         for(int i=0;i<Math.min(videos.length(),limit);i++){
             JSONObject j=videos.optJSONObject(i);if(j==null)continue;
             JSONObject sn=obj(j,"snippet"),st=obj(j,"statistics"),cd=obj(j,"contentDetails");
-            LinearLayout c=card(target);
-            c.addView(text(String.format(Locale.ROOT,"%02d  ·  VIDEO",i+1),11,CYAN,true));
-            LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.TOP);
-            LinearLayout copy=column();copy.addView(text(sn.optString("title","Sin título"),19,FG,true));
-            note(copy,sn.optString("channelTitle")+" · "+localDate(sn.optString("publishedAt"))+" · "+duration(cd.optString("duration")));
+            LinearLayout c=card(target),top=new LinearLayout(this);top.setGravity(Gravity.TOP);
+            LinearLayout copy=column();TextView title=text(sn.optString("title","Sin título"),16,FG,true);title.setMaxLines(3);title.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(title);
+            TextView meta=text(sn.optString("channelTitle")+" · "+localDate(sn.optString("publishedAt"))+" · "+duration(cd.optString("duration")),11,MUTED,false);meta.setMaxLines(2);meta.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(meta);
             top.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
-            FrameLayout thumb=videoThumbnail(sn,j.optString("id"));
-            int widthDp=getResources().getConfiguration().screenWidthDp;
-            int thumbWidth=widthDp<360?92:112;
-            LinearLayout.LayoutParams thumbParams=new LinearLayout.LayoutParams(dp(thumbWidth),dp(thumbWidth*9/16));thumbParams.leftMargin=dp(9);
-            top.addView(thumb,thumbParams);c.addView(top);
-            metricTile(c,"VISUALIZACIONES",metric(st,"viewCount"),CYAN,0xff194b71);
-            LinearLayout stats=new LinearLayout(this);addMetric(stats,"ME GUSTA",metric(st,"likeCount"),0xffff9ed0,0xff60345f);addMetric(stats,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xff534a47);c.addView(stats);
-            action(c,"Abrir en YouTube",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));
-            action(c,"Ver canal",()->loadChannel(sn.optString("channelId")));
+            int width=getResources().getConfiguration().screenWidthDp<360?84:98;FrameLayout thumb=videoThumbnail(sn,j.optString("id"));
+            LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(dp(width),dp(width*9/16));tp.leftMargin=dp(7);top.addView(thumb,tp);c.addView(top);
+            LinearLayout stats=new LinearLayout(this);addMetric(stats,"VISTAS",metric(st,"viewCount"),CYAN,0xffe3f3fa);addMetric(stats,"ME GUSTA",metric(st,"likeCount"),PINK,0xfffae9f3);addMetric(stats,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xfffff2dc);c.addView(stats);
+            LinearLayout buttons=new LinearLayout(this);
+            rowAction(buttons,"YouTube",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));
+            rowAction(buttons,"Canal",()->loadChannel(sn.optString("channelId")));
+            rowAction(buttons,"Estadísticas",()->showStatistics(j,observed));c.addView(buttons);
         }
     }
     FrameLayout videoThumbnail(JSONObject snippet,String videoId){
@@ -455,40 +507,65 @@ public class MainActivity extends Activity {
         if(!videoId.isEmpty())frame.setOnClickListener(v->open("https://www.youtube.com/watch?v="+Uri.encode(videoId)));
         return frame;
     }
-    void metricTile(LinearLayout parent,String label,String value,int accent,int fill){
-        LinearLayout tile=column();tile.setPadding(dp(10),dp(8),dp(10),dp(8));tile.setBackground(bg(fill,12));
-        tile.addView(text(label,11,accent,true));tile.addView(text(value,23,FG,true));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(7),0,dp(3));parent.addView(tile,p);
-    }
     void addMetric(LinearLayout row,String label,String value,int accent,int fill){
-        LinearLayout tile=column();tile.setPadding(dp(9),dp(7),dp(9),dp(7));tile.setBackground(bg(fill,12));tile.addView(text(label,10,accent,true));tile.addView(text(value,17,FG,true));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(4),dp(2),dp(3));row.addView(tile,p);
+        LinearLayout tile=column();tile.setPadding(dp(6),dp(4),dp(6),dp(4));tile.setBackground(bg(fill,9));
+        TextView name=text(label,10,accent,true);name.setPadding(0,0,0,0);name.setSingleLine(true);name.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);tile.addView(name);
+        TextView number=text(value,15,FG,true);number.setPadding(0,dp(2),0,0);number.setSingleLine(true);number.setAutoSizeTextTypeUniformWithConfiguration(9,15,1,android.util.TypedValue.COMPLEX_UNIT_SP);tile.addView(number);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(4),dp(2),dp(2));row.addView(tile,p);
     }
-    void showChannels(){
-        shell("channels","Canales · muestra de la última consulta");
-        note(body,lastContext.isEmpty()?"Primero consulta el catálogo o busca un nicho.":"Canales relacionados con "+lastContext+". No es un ranking global.");
-        for(int i=0;i<lastChannels.length();i++){
-            JSONObject j=lastChannels.optJSONObject(i);if(j==null)continue;channelCard(body,j);
-            action(body,"Ver publicaciones recientes",()->loadChannel(j.optString("id")));
-        }
+    AlertDialog popup(String title,LinearLayout content){
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.addView(content);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title).setView(scroll).setPositiveButton("Cerrar",null).create();dialog.show();
+        Window w=dialog.getWindow();if(w!=null)w.setLayout(Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(20)),-2);
+        return dialog;
     }
     void channelCard(LinearLayout target,JSONObject j){
         JSONObject s=obj(j,"snippet"),t=obj(j,"statistics");LinearLayout c=card(target);
-        c.addView(text(s.optString("title"),19,FG,true));
-        note(c,"Creación: "+localDate(s.optString("publishedAt")));
-        metricTile(c,"SUSCRIPTORES · CONTADOR PÚBLICO",t.optBoolean("hiddenSubscriberCount")?"Ocultos":metric(t,"subscriberCount"),GREEN,0xff294e59);
-        LinearLayout stats=new LinearLayout(this);addMetric(stats,"VISTAS TOTALES",metric(t,"viewCount"),CYAN,0xff194b71);addMetric(stats,"VIDEOS PÚBLICOS",metric(t,"videoCount"),YELLOW,0xff534a47);c.addView(stats);
+        c.addView(text(s.optString("title"),19,FG,true));note(c,"Creación: "+localDate(s.optString("publishedAt")));
+        LinearLayout stats=new LinearLayout(this);addMetric(stats,"SUSCRIPTORES",t.optBoolean("hiddenSubscriberCount")?"Ocultos":metric(t,"subscriberCount"),GREEN,0xffe6f5eb);addMetric(stats,"VISTAS",metric(t,"viewCount"),CYAN,0xffe3f3fa);addMetric(stats,"VIDEOS",metric(t,"videoCount"),YELLOW,0xfffff2dc);c.addView(stats);
+        note(c,"Contadores públicos actuales · YouTube");
         action(c,"Abrir canal en YouTube",()->open("https://www.youtube.com/channel/"+Uri.encode(j.optString("id"))));
     }
     void loadChannel(String id){
         if(id.isEmpty())return;
         run((token,api)->{
             stage(token,"Consultando canal","Obteniendo estadísticas públicas.");JSONArray a=api.channels(id);JSONObject ch=a.optJSONObject(0);
-            if(ch==null){finish(token,()->status.setText("Canal no disponible."));return;}
+            if(ch==null){finish(token,()->toast("Canal no disponible."));return;}
             String playlist=obj(obj(ch,"contentDetails"),"relatedPlaylists").optString("uploads");
             stage(token,"Cargando publicaciones","Obteniendo videos recientes del canal.");JSONArray videos=api.uploads(playlist);
-            finish(token,()->{shell("detail","Ficha de canal · estadísticas públicas actuales");status.setText("Consultado: "+localDate(Instant.now().toString()));channelCard(body,ch);note(body,"Últimas publicaciones públicas identificadas (hasta 25)");renderVideos(body,videos,25);});
+            finish(token,()->{
+                LinearLayout content=column();content.setPadding(dp(10),dp(5),dp(10),dp(8));channelCard(content,ch);
+                note(content,"YouTube · "+localDate(Instant.now().toString()));
+                content.addView(text("Publicaciones recientes",16,FG,true));note(content,"Hasta 25 publicaciones públicas identificadas.");
+                renderVideos(content,videos,25,Instant.now());popup("Ficha del canal",content);
+            });
         });
+    }
+    void showStatistics(JSONObject j,Instant observed){
+        LinearLayout content=column();content.setPadding(dp(12),dp(5),dp(12),dp(10));
+        JSONObject sn=obj(j,"snippet");content.addView(text(sn.optString("title","Video"),17,FG,true));note(content,sn.optString("channelTitle"));
+        note(content,"Publicado: "+localDate(sn.optString("publishedAt")));
+        LinearLayout readings=column();content.addView(readings);statReading(readings,j,observed,"Consulta original");
+        LinearLayout latest=column();content.addView(latest);
+        LinearLayout explanation=card(content);explanation.addView(text("Evolución histórica",16,FG,true));
+        note(explanation,"La API pública entrega contadores acumulados actuales, no una serie histórica. Una sola medición no permite determinar si el video crece o pierde interés.");
+        note(explanation,"Puedes volver a consultar para comparar dos lecturas reales durante esta ventana. El historial de largo plazo y las métricas de crecimiento aún requieren datos y permisos.");
+        String id=j.optString("id");
+        final AlertDialog[] dialog=new AlertDialog[1];
+        action(content,"Actualizar contadores",()->{
+            if(id.isEmpty())return;
+            run((token,api)->{
+                stage(token,"Actualizando estadísticas","Consultando contadores públicos del video.");JSONArray v=api.videos(id);
+                finish(token,()->{if(dialog[0]==null||!dialog[0].isShowing())return;JSONObject fresh=v.optJSONObject(0);
+                    if(fresh==null){toast("Video no disponible.");return;}
+                    latest.removeAllViews();statReading(latest,fresh,Instant.now(),"Última consulta");});
+            });
+        });
+        dialog[0]=popup("Estadísticas del video",content);
+    }
+    void statReading(LinearLayout target,JSONObject j,Instant observed,String label){
+        LinearLayout c=card(target);c.addView(text(label,14,FG,true));note(c,localDate(observed.toString())+" · YouTube Data API");
+        JSONObject st=obj(j,"statistics");LinearLayout row=new LinearLayout(this);addMetric(row,"VISTAS",metric(st,"viewCount"),CYAN,0xffe3f3fa);addMetric(row,"ME GUSTA",metric(st,"likeCount"),PINK,0xfffae9f3);addMetric(row,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xfffff2dc);c.addView(row);
     }
     void history(){
         shell("history","Historial personal · consultas guardadas");
@@ -503,10 +580,6 @@ public class MainActivity extends Activity {
                 note(item,localDate(r.optString("at"))+" · "+r.optString("region")+" · "+r.optInt("days")+" días");
             }
         }
-        LinearLayout c=card(body);c.addView(text("Todavía no hay series históricas",20,FG,true));
-        note(c,"La API pública devuelve contadores actuales. No entrega el historial diario o mensual de terceros. No se muestran curvas inventadas.");
-        note(c,"Pendiente: autorización de métricas y almacenamiento, recolector programado en servidor, importación legítima, gráficas temporales y detección de picos.");
-        action(c,"Consultar políticas de métricas",()->open("https://developers.google.com/youtube/terms/derived-metrics-policy"));
     }
     void policies(){
         new AlertDialog.Builder(this).setTitle("Información y privacidad").setMessage("Inicia sesión con Google. Guarda tus términos de búsqueda y filtros en SQLite y, con tu autorización, en el almacenamiento privado de Drive. Las consultas públicas se realizan mediante el servicio central cuando esté configurado. No se guardan estadísticas externas históricas ni contraseñas. No incluye publicidad ni telemetría propia.").setPositiveButton("Políticas de YouTube",(d,w)->open("https://www.youtube.com/t/terms")).setNeutralButton("Privacidad de Google",(d,w)->open("https://policies.google.com/privacy")).setNegativeButton("Cerrar",null).show();
