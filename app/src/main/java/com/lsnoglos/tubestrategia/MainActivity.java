@@ -54,10 +54,14 @@ public class MainActivity extends Activity {
         final String context,explanation;final JSONArray videos;final Instant observed;
         VideoResult(String c,String e,JSONArray v){context=c;explanation=e;videos=v;observed=Instant.now();}
     }
-    private VideoResult homeResult,catalogResult,nicheResult;
-    private int homeRegion=0,catalogRegion=0,catalogCategory=0,nicheRegion=0,nicheOrder=0;
-    private String nicheQuery="";
-    private boolean catalogEdit=true,nicheEdit=true,homeAutoAttempted=false;
+    private VideoResult homeResult,nicheResult;
+    private int homeRegion=0,nicheRegion=0,nicheOrder=0,nicheMode=0,nicheCategory=0;
+    private String nicheQuery="",nicheHashtag="";
+    private Spinner modePicker;
+    private boolean nicheEdit=true,homeAutoAttempted=false;
+    private String planOrigin="niche";
+    private static final String[] SORT_LABELS={"Más populares (vistas)","Más recientes","Más me gusta","Más comentados","Más relevantes"};
+    private static final String[] SORT_KEYS={"viewCount","date","likeCount","commentCount","relevance"};
     private boolean busy=false;
     private String current="home";
     private final String[] regions={"NI","MX","US","ES","CO","AR","BR"};
@@ -171,7 +175,7 @@ public class MainActivity extends Activity {
     }
     void signOut(){
         if(syncBusy){toast("Finaliza o cancela la sincronización primero.");return;}
-        account=null;driveToken=null;remoteBaseline=null;lastSync=null;driveEnabled=false;homeResult=null;catalogResult=null;nicheResult=null;homeAutoAttempted=false;homeRegion=0;catalogRegion=0;catalogCategory=0;nicheRegion=0;nicheOrder=0;nicheQuery="";catalogEdit=true;nicheEdit=true;
+        account=null;driveToken=null;remoteBaseline=null;lastSync=null;driveEnabled=false;homeResult=null;nicheResult=null;homeAutoAttempted=false;homeRegion=0;nicheRegion=0;nicheOrder=0;nicheMode=0;nicheCategory=0;nicheQuery="";nicheHashtag="";nicheEdit=true;
         loginScreen("Sesión cerrada.");
         try{credentialManager.clearCredentialStateAsync(new ClearCredentialStateRequest(),null,getMainExecutor(),new CredentialManagerCallback<Void,ClearCredentialException>(){
             @Override public void onResult(Void result){}
@@ -301,7 +305,7 @@ public class MainActivity extends Activity {
         Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(13);
         b.setMinHeight(dp(44));b.setMinimumHeight(dp(44));b.setMinimumWidth(0);b.setMinWidth(0);
         b.setPadding(dp(7),dp(5),dp(7),dp(5));b.setBackgroundTintList(null);b.setElevation(dp(2));
-        boolean primary=label.startsWith("Buscar")||label.startsWith("Consultar")||label.startsWith("Actualizar")||label.startsWith("Sincronizar");
+        boolean primary=label.startsWith("Buscar")||label.startsWith("Consultar")||label.startsWith("Actualizar")||label.startsWith("Sincronizar")||label.startsWith("Crear mi plan")||label.startsWith("Generar prompt");
         if(primary)b.setBackground(glossy(0xffb92391,0xff7545c7,0xff493aa0,11));
         else if(label.equals("YouTube")||label.startsWith("Abrir")&&label.contains("YouTube"))b.setBackground(glossy(0xffd84468,0xffbb2751,0xff991b40,11));
         else b.setBackground(glossy(0xff4285b9,0xff286b9e,0xff20547d,11));
@@ -317,12 +321,19 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(8);target.addView(l,p);return l;
     }
     void rememberFilters(){
-        if("catalog".equals(current)&&catalogEdit&&region!=null&&category!=null){catalogRegion=region.getSelectedItemPosition();catalogCategory=category.getSelectedItemPosition();}
-        if("niche".equals(current)&&nicheEdit&&region!=null&&order!=null&&query!=null){nicheRegion=region.getSelectedItemPosition();nicheOrder=order.getSelectedItemPosition();nicheQuery=query.getText().toString();}
-        if("home".equals(current)&&region!=null)homeRegion=region.getSelectedItemPosition();
+        if("niche".equals(current)&&nicheEdit&&region!=null&&order!=null){
+            nicheRegion=Math.max(0,region.getSelectedItemPosition());nicheOrder=Math.max(0,order.getSelectedItemPosition());
+            rememberModeInput();
+        }
+        if("home".equals(current)&&region!=null)homeRegion=Math.max(0,region.getSelectedItemPosition());
+    }
+    void rememberModeInput(){
+        if(nicheMode==1&&category!=null)nicheCategory=Math.max(0,category.getSelectedItemPosition());
+        if(nicheMode==0&&query!=null)nicheQuery=query.getText().toString();
+        if(nicheMode==2&&query!=null)nicheHashtag=query.getText().toString();
     }
     void shell(String name,String subtitle){
-        generation++;busy=false;current=name;region=null;category=null;order=null;query=null;
+        generation++;busy=false;current=name;region=null;category=null;order=null;query=null;modePicker=null;
         root=column();root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{BG,0xffe8f4f8}));root.setPadding(dp(10),dp(7),dp(10),dp(6));setContentView(root);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setBackground(gradient(0xffbc056e,0xff176bb5,14));header.setPadding(dp(10),dp(4),dp(5),dp(4));
         TextView title=text("TubeStrategIA",20,Color.WHITE,true);
@@ -333,11 +344,11 @@ public class MainActivity extends Activity {
         status=text("",12,MUTED,false);status.setVisibility(View.GONE);root.addView(status);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout nav=new LinearLayout(this);
-        String[] names={"Inicio","Catálogo","Nichos","Historial"};
-        Runnable[] acts={this::home,this::catalog,this::explore,this::history};
-        String[] keys={"home","catalog","niche","history"};
+        String[] names={"Inicio","Nichos","Historial"};
+        Runnable[] acts={this::home,this::explore,this::history};
+        String[] keys={"home","niche","history"};
         for(int i=0;i<names.length;i++){final Runnable go=acts[i];Button b=button(names[i],()->{rememberFilters();go.run();});b.setTextSize(12);
-            boolean selected=name.equals(keys[i]);b.setTextColor(Color.WHITE);b.setBackground(selected?glossy(0xffc23296,0xff7545c7,0xff493aa0,11):glossy(0xff497ea6,0xff33678f,0xff285371,11));
+            boolean selected=name.equals(keys[i])||(name.equals("plan")&&keys[i].equals(planOrigin));b.setTextColor(Color.WHITE);b.setBackground(selected?glossy(0xffc23296,0xff7545c7,0xff493aa0,11):glossy(0xff497ea6,0xff33678f,0xff285371,11));
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(2),dp(4),dp(2),0);nav.addView(b,p);}
         root.addView(nav);
     }
@@ -345,7 +356,7 @@ public class MainActivity extends Activity {
     void about(){
         LinearLayout c=column();c.setPadding(dp(16),dp(8),dp(16),dp(12));
         c.addView(text("TubeStrategIA · Inteligencia de mercado",18,FG,true));
-        note(c,"Inicio resume la muestra popular regional de YouTube. Catálogo explora listas oficiales y temas predefinidos; Nichos permite investigar cualquier palabra clave.");
+        note(c,"Inicio resume la muestra popular regional de YouTube. Nichos reúne búsquedas manuales, catálogo y hashtags. Crear mi plan prepara un prompt para contenido original a partir de metadatos y observaciones autorizadas.");
         note(c,"Popularidad acumulada no equivale a demanda de búsqueda, crecimiento reciente ni interés de las últimas 24 horas.");
         note(c,"Las búsquedas temáticas no son clasificaciones completas. País del canal es un dato declarado; IA usa indicios textuales, no verificación oficial. No se consultan comentarios para clasificar.");
         note(c,"Fuente: YouTube Data API. Cuota compartida; el historial personal se guarda en SQLite y, si lo autorizas, en Drive.");
@@ -396,39 +407,58 @@ public class MainActivity extends Activity {
             FrameLayout thumb=videoThumbnail(sn,j.optString("id"));line.addView(thumb,new LinearLayout.LayoutParams(dp(66),dp(38)));
             LinearLayout copy=column();copy.setPadding(dp(8),0,0,0);TextView t=text(sn.optString("title","Sin título"),13,FG,true);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(t);
             copy.addView(text(metric(obj(j,"statistics"),key),15,accent,true));line.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
-            Button more=button("Ver",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));more.setTextSize(11);line.addView(more,new LinearLayout.LayoutParams(dp(48),dp(40)));
+            Button more=button("Plan",()->createPlan(j));more.setTextSize(11);line.addView(more,new LinearLayout.LayoutParams(dp(52),dp(40)));
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(5);group.addView(line,p);
         }
     }
-    void catalog(){
-        shell("catalog","Catálogo · explora categorías y temas");
-        LinearLayout controls=card(body);
-        if(!catalogEdit&&catalogResult!=null){
-            controls.addView(text(catalogResult.context,16,FG,true));action(controls,"Cambiar filtros",()->{catalogEdit=true;catalog();});
-        }else{
-            note(controls,"Región del catálogo");region=spinner(controls,countryNames);region.setSelection(Math.max(0,catalogRegion));
-            note(controls,"Categoría o tema");category=spinner(controls,catalogOptions());category.setSelection(Math.max(0,catalogCategory));
-            TextView hint=text("",12,MUTED,false);controls.addView(hint);Button submit=button("Consultar catálogo",this::popular);controls.addView(submit);
-            category.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
-                @Override public void onItemSelected(AdapterView<?> p,View v,int position,long id){boolean official=position<categories.length;submit.setText(official?"Consultar catálogo":"Buscar videos del tema");hint.setText(official?"Lista oficial disponible para esta región.":TopicFilters.hint(position-categories.length));}
-                @Override public void onNothingSelected(AdapterView<?> p){}
-            });
-        }
-        if(catalogResult!=null)renderResult(catalogResult);
-    }
     void explore(){
-        shell("niche","Nichos · investiga cualquier palabra clave");
+        shell("niche","Nichos · encuentra tu próximo video");
         LinearLayout l=card(body);
         if(!nicheEdit&&nicheResult!=null){
             l.addView(text(nicheResult.context,16,FG,true));action(l,"Cambiar filtros",()->{nicheEdit=true;explore();});
         }else{
-            note(l,"Palabra clave");query=new EditText(this);query.setSingleLine(true);query.setHint("Gatos, IA, frutiseries...");query.setTextColor(FG);query.setHintTextColor(MUTED);query.setText(nicheQuery);l.addView(query);
+            note(l,"Tipo de búsqueda");
+            modePicker=spinner(l,new String[]{"Manual","Catálogo","Hashtag"});modePicker.setSelection(nicheMode);
+            LinearLayout dynamic=column();l.addView(dynamic);renderModeInput(dynamic);
+            modePicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(AdapterView<?> p,View v,int pos,long id){
+                    if(pos==nicheMode)return;rememberModeInput();nicheMode=pos;renderModeInput(dynamic);
+                }
+                @Override public void onNothingSelected(AdapterView<?> p){}
+            });
+            note(l,"Orden de resultados");order=spinner(l,SORT_LABELS);order.setSelection(Math.max(0,nicheOrder));
             note(l,"Región de disponibilidad");region=spinner(l,countryNames);region.setSelection(Math.max(0,nicheRegion));
-            note(l,"Orden de resultados");order=spinner(l,new String[]{"Más visualizaciones","Más recientes","Relevancia"});order.setSelection(Math.max(0,nicheOrder));
-            action(l,"Buscar videos del nicho",this::search);
-            note(l,"Búsqueda adaptativa: 7, 30 y 90 días si faltan resultados.");
+            action(l,"Buscar videos",this::search);
+            note(l,"La búsqueda se amplía de 7 a 30 y 90 días si faltan resultados. El catálogo oficial usa su muestra actual.");
         }
         if(nicheResult!=null)renderResult(nicheResult);
+    }
+    void renderModeInput(LinearLayout target){
+        target.removeAllViews();query=null;category=null;
+        if(nicheMode==1){
+            note(target,"Categoría o tema");category=spinner(target,catalogOptions());category.setSelection(nicheCategory);
+            TextView hint=text("",12,MUTED,false);target.addView(hint);
+            category.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(AdapterView<?> p,View v,int pos,long id){
+                    hint.setText(pos<categories.length?"Muestra oficial de YouTube.":TopicFilters.hint(pos-categories.length));
+                }
+                @Override public void onNothingSelected(AdapterView<?> p){}
+            });
+        }else if(nicheMode==2){
+            note(target,"Hashtag");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView hash=text("#",25,PINK,true);hash.setPadding(dp(8),0,dp(4),0);row.addView(hash);
+            query=new EditText(this);query.setSingleLine(true);query.setTextColor(FG);query.setHintTextColor(MUTED);
+            query.setHint("frutiseries");query.setContentDescription("Hashtag sin el símbolo numeral");
+            query.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            query.setFilters(new android.text.InputFilter[]{(source,start,end,dest,dstart,dend)->{
+                String raw=source.subSequence(start,end).toString(),clean=VideoPlan.cleanHashtag(raw);
+                return raw.equals(clean)?null:clean;
+            },new android.text.InputFilter.LengthFilter(100)});
+            query.setText(nicheHashtag);row.addView(query,new LinearLayout.LayoutParams(0,-2,1));target.addView(row);
+            note(target,"Sin espacios. Se comprobará el hashtag exacto en título o descripción.");
+        }else{
+            note(target,"Palabra clave");query=new EditText(this);query.setSingleLine(true);query.setHint("Gatos, IA, frutiseries...");query.setTextColor(FG);query.setHintTextColor(MUTED);query.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(500)});query.setText(nicheQuery);target.addView(query);
+        }
     }
     boolean ready(){if(busy){setStatus("Hay una consulta en curso.");return false;}if(account==null){loginScreen("");return false;}if(syncBusy){setStatus("Finaliza la sincronización primero.");return false;}if(BuildConfig.BACKEND_URL.isEmpty()){setStatus("El administrador aún no ha desplegado el servicio central de YouTube.");return false;}return true;}
     void run(Work work){
@@ -439,46 +469,60 @@ public class MainActivity extends Activity {
         }});
     }
     void finish(int token,Runnable r){runOnUiThread(()->{if(token!=generation||isFinishing()||isDestroyed())return;busy=false;hideLoading();setStatus("");r.run();});}
-    void popular(){
-        if(region==null||category==null)return;
-        rememberFilters();int ri=catalogRegion,selected=catalogCategory;if(ri<0||selected<0)return;
-        String reg=regions[ri];
-        if(selected>=categories.length){
-            int topic=selected-categories.length;String[] theme=THEMES[topic];
-            String q="@country".equals(theme[1])?countryNames[ri]:"@live".equals(theme[1])?"":theme[1];
-            String explanation=TopicFilters.explanation(topic);
-            searchTopic(q,reg,"viewCount",theme[0],explanation,true,topic);return;
-        }
-        String cat=categories[selected],label=catalogOptions()[selected];
-        run((token,api)->{
-            stage(token,"Consultando catálogo","Obteniendo videos de la región seleccionada.");JSONArray v=api.popular(reg,cat);
-            finish(token,()->{catalogResult=new VideoResult(label+" · "+reg,"Lista oficial de YouTube, no volumen de búsquedas.",v);catalogEdit=false;catalog();});
-        });
-    }
     void search(){
-        if(query==null)return;rememberFilters();String q=nicheQuery.trim();
+        rememberFilters();String reg=regions[nicheRegion],sort=SORT_KEYS[nicheOrder];
+        if(nicheMode==1){
+            int selected=nicheCategory;
+            if(selected<categories.length){
+                String cat=categories[selected],label=catalogOptions()[selected];
+                run((token,api)->{
+                    stage(token,"Consultando catálogo","Obteniendo la muestra regional.");JSONArray raw=api.popular(reg,cat);
+                    JSONArray ranked=VideoPlan.sort(raw,sort);
+                    finish(token,()->{nicheResult=new VideoResult(label+" · "+reg+" · "+SORT_LABELS[nicheOrder],"Orden dentro de la muestra oficial, no ranking global.",ranked);nicheEdit=false;explore();});
+                });return;
+            }
+            int topic=selected-categories.length;String[] theme=THEMES[topic];
+            String q="@country".equals(theme[1])?countryNames[nicheRegion]:"@live".equals(theme[1])?"":theme[1];
+            searchTopic(q,reg,sort,theme[0],TopicFilters.explanation(topic),topic,"");return;
+        }
+        if(query==null)return;
+        if(nicheMode==2){
+            String hashtag=VideoPlan.cleanHashtag(nicheHashtag);
+            if(hashtag.isEmpty()){query.setError("Escribe un hashtag");return;}
+            searchTopic("#"+hashtag,reg,sort,"#"+hashtag,"Coincidencia exacta del hashtag en título o descripción.",-1,hashtag);return;
+        }
+        String q=nicheQuery.trim();
         if(q.isEmpty()||q.length()>500){query.setError("Escribe un tema de hasta 500 caracteres");return;}
-        if(nicheRegion<0||nicheOrder<0)return;
-        searchTopic(q,regions[nicheRegion],new String[]{"viewCount","date","relevance"}[nicheOrder],q,"Muestra de búsqueda; pocos resultados no prueban baja demanda.",false,-1);
+        searchTopic(q,reg,sort,q,"Muestra de búsqueda, no ranking global.",-1,"");
     }
-    void searchTopic(String q,String reg,String sort,String label,String explanation,boolean fromCatalog,int topic){
+    void searchTopic(String q,String reg,String sort,String label,String explanation,int topic,String hashtag){
+        final String apiSort=Arrays.asList("viewCount","date","relevance").contains(sort)?sort:"relevance";
+        final boolean sampleSort=!apiSort.equals(sort);
         run((token,api)->{
             JSONArray videos=new JSONArray();int used=7;
             String cat=TopicFilters.category(topic),event=topic==1?"live":"";
             if(!cat.isEmpty()||!event.isEmpty())api.requireFilters();
+            LinkedHashMap<String,JSONObject> matched=new LinkedHashMap<>();
             for(int days:new int[]{7,30,90}){
                 used=days;stage(token,"Buscando videos","Explorando publicaciones de los últimos "+days+" días.");
-                JSONArray raw=api.search(q,reg,days,sort,cat,event);
+                JSONArray raw=api.search(q,reg,days,apiSort,cat,event);
                 stage(token,"Aplicando filtros","Comprobando los metadatos disponibles.");
-                videos=TopicFilters.filter(raw,topic,reg,api);
+                JSONArray filtered=TopicFilters.filter(raw,topic,reg,api);
+                for(int i=0;i<filtered.length();i++){
+                    JSONObject j=filtered.optJSONObject(i);if(j==null)continue;
+                    if(!hashtag.isEmpty()&&!VideoPlan.hashtagMatches(j,hashtag))continue;
+                    String id=j.optString("id");if(!id.isEmpty())matched.put(id,j);
+                }
+                videos=new JSONArray();for(JSONObject j:matched.values())videos.put(j);
                 if(videos.length()>=10)break;
             }
-            final int span=used;final JSONArray found=videos;
+            final int span=used;final JSONArray found=VideoPlan.sort(videos,sort);
             finish(token,()->{if(account==null)return;
-                store.add(account.getId().toLowerCase(Locale.ROOT),q.isEmpty()?label:q,reg,span,sort);
-                VideoResult result=new VideoResult(label+" · "+reg+" · "+span+" días",explanation,found);
-                if(fromCatalog){catalogResult=result;catalogEdit=false;catalog();}else{nicheResult=result;nicheEdit=false;explore();}
-                if(driveEnabled)inspectBackup();
+                // Keep legacy backup format compatible; sort stores the actual API query order.
+                store.add(account.getId().toLowerCase(Locale.ROOT),q.isEmpty()?label:q,reg,span,apiSort);
+                String extra=sampleSort?" Orden por contador dentro de los resultados recuperados.":"";
+                nicheResult=new VideoResult(label+" · "+reg+" · "+span+" días",explanation+extra,found);
+                nicheEdit=false;explore();if(driveEnabled)inspectBackup();
             });
         });
     }
@@ -501,10 +545,7 @@ public class MainActivity extends Activity {
             int width=getResources().getConfiguration().screenWidthDp<360?84:98;FrameLayout thumb=videoThumbnail(sn,j.optString("id"));
             LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(dp(width),dp(width*9/16));tp.leftMargin=dp(7);top.addView(thumb,tp);c.addView(top);
             LinearLayout stats=new LinearLayout(this);addMetric(stats,"VISTAS",metric(st,"viewCount"),CYAN,0xffe3f3fa);addMetric(stats,"ME GUSTA",metric(st,"likeCount"),PINK,0xfffae9f3);addMetric(stats,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xfffff2dc);c.addView(stats);
-            LinearLayout buttons=new LinearLayout(this);
-            rowAction(buttons,"YouTube",()->open("https://www.youtube.com/watch?v="+Uri.encode(j.optString("id"))));
-            rowAction(buttons,"Canal",()->loadChannel(sn.optString("channelId")));
-            c.addView(buttons);
+            action(c,"Crear mi plan",()->createPlan(j));
         }
     }
     FrameLayout videoThumbnail(JSONObject snippet,String videoId){
@@ -539,27 +580,48 @@ public class MainActivity extends Activity {
         Window w=dialog.getWindow();if(w!=null)w.setLayout(Math.min(dp(520),getResources().getDisplayMetrics().widthPixels-dp(20)),-2);
         return dialog;
     }
-    void channelCard(LinearLayout target,JSONObject j){
-        JSONObject s=obj(j,"snippet"),t=obj(j,"statistics");LinearLayout c=card(target);
-        c.addView(text(s.optString("title"),19,FG,true));note(c,"Creación: "+localDate(s.optString("publishedAt")));
-        LinearLayout stats=new LinearLayout(this);addMetric(stats,"SUSCRIPTORES",t.optBoolean("hiddenSubscriberCount")?"Ocultos":metric(t,"subscriberCount"),GREEN,0xffe6f5eb);addMetric(stats,"VISTAS",metric(t,"viewCount"),CYAN,0xffe3f3fa);addMetric(stats,"VIDEOS",metric(t,"videoCount"),YELLOW,0xfffff2dc);c.addView(stats);
-        note(c,"Contadores públicos actuales · YouTube");
-        action(c,"Abrir canal en YouTube",()->open("https://www.youtube.com/channel/"+Uri.encode(j.optString("id"))));
+    @Override public void onBackPressed(){
+        if("plan".equals(current)){leavePlan();return;}super.onBackPressed();
     }
-    void loadChannel(String id){
-        if(id.isEmpty())return;
-        run((token,api)->{
-            stage(token,"Consultando canal","Obteniendo estadísticas públicas.");JSONArray a=api.channels(id);JSONObject ch=a.optJSONObject(0);
-            if(ch==null){finish(token,()->toast("Canal no disponible."));return;}
-            String playlist=obj(obj(ch,"contentDetails"),"relatedPlaylists").optString("uploads");
-            stage(token,"Cargando publicaciones","Obteniendo videos recientes del canal.");JSONArray videos=api.uploads(playlist);
-            finish(token,()->{
-                LinearLayout content=column();content.setPadding(dp(10),dp(5),dp(10),dp(8));channelCard(content,ch);
-                note(content,"YouTube · "+localDate(Instant.now().toString()));
-                content.addView(text("Publicaciones recientes",16,FG,true));note(content,"Hasta 25 publicaciones públicas identificadas.");
-                renderVideos(content,videos,25,Instant.now());popup("Ficha del canal",content);
-            });
+    void leavePlan(){if("home".equals(planOrigin))home();else explore();}
+    void createPlan(JSONObject video){
+        if(account==null)return;
+        if(!"plan".equals(current))planOrigin="home".equals(current)?"home":"niche";
+        rememberFilters();shell("plan","Mi plan · crea contenido original");
+        action(body,"Volver a resultados",this::leavePlan);
+        JSONObject sn=obj(video,"snippet"),cd=obj(video,"contentDetails"),st=obj(video,"statistics");
+        LinearLayout ref=card(body);ref.addView(text("Video de referencia",16,PINK,true));
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.TOP);LinearLayout copy=column();
+        copy.addView(text(sn.optString("title","Sin título"),16,FG,true));note(copy,sn.optString("channelTitle")+" · "+duration(cd.optString("duration")));
+        row.addView(copy,new LinearLayout.LayoutParams(0,-2,1));row.addView(videoThumbnail(sn,video.optString("id")),new LinearLayout.LayoutParams(dp(100),dp(56)));ref.addView(row);
+        LinearLayout metrics=new LinearLayout(this);addMetric(metrics,"VISTAS",metric(st,"viewCount"),CYAN,0xffe3f3fa);addMetric(metrics,"ME GUSTA",metric(st,"likeCount"),PINK,0xfffae9f3);addMetric(metrics,"COMENTARIOS",metric(st,"commentCount"),YELLOW,0xfffff2dc);ref.addView(metrics);
+        note(ref,"Hashtags publicados: "+VideoPlan.hashtagText(video));
+        note(ref,"Etiquetas del video: "+VideoPlan.tagText(video));
+        note(ref,"Idioma declarado: "+sn.optString("defaultAudioLanguage",sn.optString("defaultLanguage","No disponible"))+" · Calidad: "+cd.optString("definition","No disponible"));
+        note(ref,"Descripción pública");String description=sn.optString("description");
+        TextView desc=text(description.isEmpty()?"No disponible":description,12,MUTED,false);desc.setMaxLines(5);desc.setEllipsize(android.text.TextUtils.TruncateAt.END);ref.addView(desc);
+        if(!description.isEmpty())action(ref,"Mostrar descripción",()->{desc.setMaxLines(Integer.MAX_VALUE);desc.setEllipsize(null);});
+        LinearLayout form=card(body);form.addView(text("¿De qué quieres que trate tu video?",19,FG,true));
+        EditText idea=planInput("Ej. Una historia de un gato que rescata a un perro",1600);form.addView(idea);
+        note(form,"Opcional: observaciones del video o transcripción propia/autorizada");
+        EditText notes=planInput("Gancho, narración, ritmo, escenas, final, o transcripción autorizada...",12000);form.addView(notes);
+        note(form,"No se extrae el diálogo automáticamente. Sin notas, el prompt solo usa metadatos y solicita una estructura creativa nueva.");
+        LinearLayout output=card(body);output.setVisibility(View.GONE);
+        action(form,"Generar prompt",()->{
+            String subject=idea.getText().toString().trim();if(subject.isEmpty()){idea.setError("Escribe de qué tratará tu video");return;}
+            String prompt=VideoPlan.prompt(video,subject,notes.getText().toString().trim(),duration(cd.optString("duration")));
+            output.removeAllViews();output.setVisibility(View.VISIBLE);output.addView(text("Prompt listo para ChatGPT",18,FG,true));
+            EditText result=planInput("",30000);result.setText(prompt);result.setMinLines(8);result.setMaxLines(18);output.addView(result);
+            action(output,"Copiar prompt",()->{android.content.ClipboardManager cb=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);cb.setPrimaryClip(android.content.ClipData.newPlainText("Plan TubeStrategIA",result.getText().toString()));toast("Prompt copiado.");});
+            action(output,"Compartir prompt",()->{Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");send.putExtra(Intent.EXTRA_TEXT,result.getText().toString());startActivity(Intent.createChooser(send,"Compartir plan"));});
+            action(output,"Abrir ChatGPT",()->open("https://chatgpt.com/"));
+            note(output,"Copia el prompt y pégalo en ChatGPT. No se envía automáticamente ni se necesita una clave de OpenAI.");
+            output.post(()->output.requestRectangleOnScreen(new android.graphics.Rect(0,0,output.getWidth(),Math.min(output.getHeight(),dp(400))),false));
         });
+    }
+    EditText planInput(String hint,int max){
+        EditText input=new EditText(this);input.setTextColor(FG);input.setHintTextColor(MUTED);input.setHint(hint);input.setGravity(Gravity.TOP);
+        input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);input.setMinLines(3);input.setMaxLines(8);input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(max)});return input;
     }
     void history(){
         shell("history","Historial personal · consultas guardadas");
